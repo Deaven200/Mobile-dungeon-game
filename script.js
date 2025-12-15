@@ -44,6 +44,14 @@ const ENEMY_TYPES = [
 
 const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
 
+function renderLiveLog() {
+  const logDiv = document.getElementById("liveLog");
+  if (!logDiv) return;
+  logDiv.innerHTML = liveLogs
+    .map(l => `<div style="color:${l.color}">${l.text}</div>`)
+    .join("");
+}
+
 function addLog(text, type = "info") {
   const colors = {
     player: "lime",
@@ -60,7 +68,12 @@ function addLog(text, type = "info") {
   logHistory.push(entry);
   liveLogs.push(entry);
 
-  setTimeout(() => liveLogs.shift(), LOG_LIFETIME);
+  renderLiveLog();
+
+  setTimeout(() => {
+    liveLogs = liveLogs.filter(e => e !== entry);
+    renderLiveLog();
+  }, LOG_LIFETIME);
 }
 
 function canMove(x, y) {
@@ -224,11 +237,13 @@ function move(dx, dy) {
     player.y = ny;
   }
 
-  if (map[`${nx},${ny}_loot`]) {
-    player.inventory.push(map[`${nx},${ny}_loot`]);
+  // Only pick up loot from the tile you are actually standing on.
+  const pKey = `${player.x},${player.y}`;
+  if (map[`${pKey}_loot`]) {
+    player.inventory.push(map[`${pKey}_loot`]);
     addLog("Picked up potion", "loot");
-    delete map[`${nx},${ny}_loot`];
-    map[`${nx},${ny}`] = ".";
+    delete map[`${pKey}_loot`];
+    map[pKey] = ".";
   }
 
   if (tile === "T") {
@@ -294,12 +309,9 @@ function setTab(tab) {
 
 function draw() {
   let g = document.getElementById("game");
-  let logDiv = document.getElementById("liveLog");
 
   // Live log
-  logDiv.innerHTML = liveLogs.map(l =>
-    `<div style="color:${l.color}">${l.text}</div>`
-  ).join("");
+  renderLiveLog();
   
 if (menuOpen) {
   // Ensure menuOpen always triggers
@@ -326,7 +338,7 @@ if (menuOpen) {
             HP ${player.hp}/${player.maxHp}<br>
             DMG ${player.dmg}<br>
             Tough ${player.toughness}<br>
-            Floor ${level}
+            Floor ${floor}
           </div>`
         : `<div class="menu-log">
             ${logHistory.map(l=>`<div style="color:${l.color}">${l.text}</div>`).join("")}
