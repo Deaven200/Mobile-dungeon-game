@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
   <title>Dungeon Roguelike</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -10,20 +11,20 @@
 
   <!-- Map Container (Top 75%) -->
   <div id="mapContainer">
-    <pre id="game"></pre>
+    <div id="game" aria-label="Dungeon map"></div>
   </div>
 
   <!-- Live Log Overlay -->
   <div id="liveLog"></div>
 
   <!-- Controls (Bottom 25%) -->
-  <div id="controls">
+  <div id="controls" aria-label="Controls">
     <div class="arrow-grid">
-      <button class="arrow-up" onclick="move(0,-1)">^</button>
-      <button class="arrow-left" onclick="move(-1,0)"><</button>
-      <button class="arrow-center" id="menuBtn" onclick="toggleMenu()">○</button>
-      <button class="arrow-right" onclick="move(1,0)">></button>
-      <button class="arrow-down" onclick="move(0,1)">v</button>
+      <button class="arrow arrow-up" type="button" data-move="0,-1" aria-label="Move up">▲</button>
+      <button class="arrow arrow-left" type="button" data-move="-1,0" aria-label="Move left">◀</button>
+      <button class="arrow arrow-center" id="menuBtn" type="button" data-action="menu" aria-label="Menu">●</button>
+      <button class="arrow arrow-right" type="button" data-move="1,0" aria-label="Move right">▶</button>
+      <button class="arrow arrow-down" type="button" data-move="0,1" aria-label="Move down">▼</button>
     </div>
   </div>
 
