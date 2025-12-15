@@ -1,37 +1,37 @@
-- Dungeon floors; procedural dungeon that regenerates each floor, with rooms connected by corridors
-- Floor progression; reaching the trapdoor increases the floor number and generates a new dungeon
+- Dungeon floors; procedural dungeon that regenerates each floor
+- Floor progression; stepping on the trapdoor (T) descends and increments the floor number
 - Room count scaling; number of rooms per floor is floor + 2
-- Start room; player always spawns in an anchored start room near the same coordinates
+- Start room; player spawns in an anchored start room near consistent coordinates
 - Boss room; the room farthest from the start is marked as the boss room
-- Trapdoor (T); placed at the center of the boss room and used to descend to the next floor
+- Trapdoor (T); placed at the center of the boss room and used to descend
 
 - ASCII map rendering; the dungeon is displayed as a character grid centered on the player
-- View radius; only a square area around the player is shown (17x17 tiles)
-- Tile symbols; @=player, E=enemy, #=wall, .=floor, P=potion, T=trapdoor, ~=visible trap
-- Auto-fit map font size; the map font scales to fit the screen/container
+- View radius; a 17x17 area is shown (VIEW_RADIUS=8)
+- Tile symbols; @=player, E=enemy, #=wall, .=floor, P=potion, T=trapdoor, ~=visible trap, m=mouse hint
+- Auto-fit map font size; the ASCII map font scales to fit the screen/container
+- Hidden trap hint; hidden traps look like floor but periodically flash orange
 
 - Movement (mobile buttons); on-screen arrow buttons move one tile per press
-- Movement (keyboard); Arrow keys or WASD move one tile per keypress
-- Movement (swipe); swiping on the map moves one tile in the swipe direction
-- Pause/menu toggle; center button or M key opens/closes the menu and pauses gameplay
+- Hold-to-move; holding an arrow repeats movement every 300ms
+- Menu toggle; center button opens/closes the in-game menu and pauses gameplay
 
-- Menu tabs; Inventory, Status, and Log tabs are available in the in-game menu
+- Menu tabs; Inventory, Status, and Log tabs
 - Inventory; picked-up potions appear as buttons you can tap/click to consume
-- Status screen; shows HP/max HP, damage, toughness, floor number, and active burning status
-- Log system; events are recorded in a history log and also shown briefly as a live overlay
+- Status screen; shows HP/max HP, damage, toughness, floor number, and burning status (if active)
+- Log system; events are shown as a short-lived live overlay and stored in a history log tab
 
 - Player stats; HP, max HP, damage, toughness, and an inventory of potions
 - Toughness damage reduction; incoming damage from enemies and traps is reduced by toughness (minimum 0)
 
 - Melee combat (player); moving into an adjacent enemy attacks it for your damage
 - Melee combat (enemy); if an enemy is adjacent it attacks you on its turn
-- Death/reset; when HP reaches 0 you die, see an alert, floor resets to 1, HP is restored, and a new floor is generated
+- Death/reset; when HP reaches 0 you die (alert), floor resets to 1, HP is restored, and a new floor is generated (stats persist)
 
-- Enemies; enemies spawn in enemy rooms and are shown as E on the map
+- Enemies; 1–2 enemies spawn in each enemy room and are shown as E on the map
 - Enemy types (4 tiers); enemies have different HP/damage/sight values based on floor bracket
-- Enemy scaling by floor; enemy tier increases every 10 floors (uses the strongest tier at high floors)
+- Enemy scaling by floor; tier increases every 10 floors (capped at the strongest tier)
 - Enemy turns; enemies act after the player’s move
-- Enemy chasing; enemies chase the player when within their sight range
+- Enemy chasing; enemies move toward the player when within their sight range
 - Enemy wandering; enemies move randomly when the player is outside their sight range
 - Enemy death; enemies are removed when their HP reaches 0
 - Potion drops; enemies have a 5% chance to drop a random potion on death
@@ -42,17 +42,18 @@
 - Strength Potion; permanently increases your damage by 1
 - Toughness Potion; permanently increases your toughness by 1
 
-- Traps; traps are placed around enemy rooms each floor and trigger when stepped on
+- Traps; traps are placed inside enemy rooms each floor and trigger when stepped on
 - Trap count scaling; number of traps increases with floor (capped at 12)
-- Visible traps (~); visible traps are shown on the map as ~ in the trap’s color
-- Hidden traps; hidden traps look like normal floor but briefly flash to hint their location
-- Trap triggers; stepping onto a trap deals damage reduced by toughness, then the trap is removed
+- Visible traps (~); visible traps are shown as ~ in the trap’s color
+- Hidden traps; hidden traps look like normal floor but periodically flash orange
+- Trap triggers; stepping onto a trap deals damage reduced by toughness, may apply status, then the trap is removed
 - Enemy trap interaction; enemies can also trigger traps (including hidden traps)
 
-- Fire trap; deals 2 base damage and applies burning (3 turns, 1 damage per turn)
-- Poison trap; deals 1 base damage
-- Spike trap; deals 1 base damage
-- Shock trap; deals 2 base damage
+- Trap types; fire (damage + burning), poison (damage), spike (damage), shock (damage)
+- Burning status effect; burning deals damage each turn for a set number of turns (can affect player and enemies)
+- Burning stacking; reapplying burning keeps the higher remaining turns and higher damage-per-turn
 
-- Burning status effect; burning deals damage each turn for a set number of turns
-- Burning duration stacking; reapplying burning keeps the higher remaining turns and higher damage-per-turn
+- Hidden room (secret); floor 1 always (and ~10% chance on later floors) generates a hidden hallway/room behind a false wall
+- False-wall reveal; hidden area tiles render as walls until you walk into the entrance false wall to reveal the passage
+- Hidden room contents; exactly 1 potion (Health Potion on floor 1, otherwise random) and exactly 1 hidden trap (no enemies)
+- Mouse hint (m); a small mouse wanders and, if you get close before the secret is revealed, runs toward the false wall and briefly “pulses” the entrance when it escapes
