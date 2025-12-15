@@ -48,7 +48,7 @@ document.addEventListener("DOMContentLoaded", () => {
   ];
 
   const TRAP_TYPES = [
-    { type: "fire", color: "orange", dmg: 2 },
+    { type: "fire", color: "orange", dmg: 2, status: { kind: "burning", turns: 3, dmgPerTurn: 1 } },
     { type: "poison", color: "lime", dmg: 1 },
     { type: "spike", color: "silver", dmg: 1 },
     { type: "shock", color: "yellow", dmg: 2 },
@@ -77,6 +77,40 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function isWalkableTile(ch) {
     return ch === "." || ch === "~" || ch === "T";
+  }
+
+  function getBurning(target) {
+    return target?.statusEffects?.burning || null;
+  }
+
+  function addBurning(target, turns = 3, dmgPerTurn = 1) {
+    if (!target) return;
+    if (!target.statusEffects) target.statusEffects = {};
+    const cur = target.statusEffects.burning;
+    if (!cur) target.statusEffects.burning = { turns, dmgPerTurn };
+    else {
+      target.statusEffects.burning = {
+        turns: Math.max(Number(cur.turns || 0), Number(turns || 0)),
+        dmgPerTurn: Math.max(Number(cur.dmgPerTurn || 0), Number(dmgPerTurn || 0)),
+      };
+    }
+  }
+
+  function tickStatusEffects(target, targetKind = "player") {
+    if (!target || typeof target.hp !== "number") return;
+    const burning = getBurning(target);
+    if (!burning?.turns) return;
+
+    const dmg = Math.max(0, Number(burning.dmgPerTurn || 0));
+    if (dmg) target.hp -= dmg;
+
+    burning.turns -= 1;
+    if (burning.turns <= 0) delete target.statusEffects.burning;
+
+    // Only spam logs for the player; enemies already have visible feedback and death logs.
+    if (targetKind === "player") {
+      addLog(`You are burning: -${dmg} hp`, dmg ? "danger" : "block");
+    }
   }
 
   function escapeHtml(s) {
@@ -435,6 +469,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (target && typeof target.hp === "number") target.hp -= dmg;
+    if (trap.status?.kind === "burning") {
+      addBurning(target, trap.status.turns ?? 3, trap.status.dmgPerTurn ?? 1);
+      if (targetKind === "player") addLog("You are burning!", "danger");
+    }
 
     delete map[`${key}_trap`];
     map[key] = ".";
@@ -454,6 +492,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const dmg = Math.max(0, e.dmg - player.toughness);
         player.hp -= dmg;
         addLog(`Enemy hits you for ${dmg}`, dmg ? "enemy" : "block");
+        tickStatusEffects(e, "enemy");
+        if (e.hp <= 0) {
+          addLog("Enemy dies", "death");
+          enemies.splice(idx, 1);
+        }
         continue;
       }
 
@@ -484,10 +527,12 @@ document.addEventListener("DOMContentLoaded", () => {
       // Enemies can trigger traps too (including hidden ones).
       if (e.x !== beforeX || e.y !== beforeY) {
         triggerTrapAtEntity(e.x, e.y, e, "enemy");
-        if (e.hp <= 0) {
-          addLog("Enemy dies to a trap", "death");
-          enemies.splice(idx, 1);
-        }
+      }
+
+      tickStatusEffects(e, "enemy");
+      if (e.hp <= 0) {
+        addLog("Enemy dies", "death");
+        enemies.splice(idx, 1);
       }
     }
   }
@@ -544,6 +589,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     moveEnemies();
+    tickStatusEffects(player, "player");
 
     if (player.hp <= 0) {
       addLog("You died", "danger");
@@ -663,11 +709,17 @@ document.addEventListener("DOMContentLoaded", () => {
         content = `<div class="menu-empty">Inventory empty</div>`;
       }
     } else if (activeTab === "status") {
+      const burning = getBurning(player);
+      const statusLines = [];
+      if (burning?.turns) {
+        statusLines.push(`You are burning -${burning.dmgPerTurn} hp per turn (${burning.turns} turns remaining)`);
+      }
       content = `<div class="menu-status">
         HP ${player.hp}/${player.maxHp}<br>
         DMG ${player.dmg}<br>
         Tough ${player.toughness}<br>
         Floor ${floor}
+        ${statusLines.length ? "<br><br>" + statusLines.map(escapeHtml).join("<br>") : ""}
       </div>`;
     } else {
       content = `<div class="menu-log">${logHistory
@@ -703,7 +755,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const enemyByPos = new Map();
     for (const e of enemies) enemyByPos.set(`${e.x},${e.y}`, e);
 
-    const tileSpan = (ch, color) => `<span style="color:${color}">${ch}</span>`;
+    const tileSpan = (ch, color, extraStyle = "") => `<span style="color:${color};${extraStyle}">${ch}</span>`;
+    const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
     const hiddenFlashOn = Date.now() % HIDDEN_TRAP_FLASH_PERIOD_MS < HIDDEN_TRAP_FLASH_PULSE_MS;
 
     // Map draw - center on player
@@ -714,10 +767,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const ty = player.y + y;
         const key = `${tx},${ty}`;
 
-        if (tx === player.x && ty === player.y) out += tileSpan("@", "cyan");
+        if (tx === player.x && ty === player.y) {
+          const extra = getBurning(player)?.turns ? burningOutlineCss : "";
+          out += tileSpan("@", "cyan", extra);
+        }
         else if (enemyByPos.has(key)) {
           const e = enemyByPos.get(key);
-          out += tileSpan("E", e.color);
+          const extra = getBurning(e)?.turns ? burningOutlineCss : "";
+          out += tileSpan("E", e.color, extra);
         } else if (map[`${key}_loot`]) {
           const p = map[`${key}_loot`];
           out += tileSpan(p.symbol, p.color);
