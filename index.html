@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dungeon Roguelike</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Map Container (Top 75%) -->
+  <div id="mapContainer">
+    <pre id="game"></pre>
+  </div>
+
+  <!-- Live Log Overlay -->
+  <div id="liveLog"></div>
+
+  <!-- Controls (Bottom 25%) -->
+  <div id="controls">
+    <div class="arrow-grid">
+      <button class="arrow-up" onclick="move(0,-1)">^</button>
+      <button class="arrow-left" onclick="move(-1,0)"><</button>
+      <button class="arrow-center" id="menuBtn" onclick="toggleMenu()">○</button>
+      <button class="arrow-right" onclick="move(1,0)">></button>
+      <button class="arrow-down" onclick="move(0,1)">v</button>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
