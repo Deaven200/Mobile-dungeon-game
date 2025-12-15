@@ -8,6 +8,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const VIEW_RADIUS = 8;
   const LOG_LIFETIME = 3000;
+  const HIDDEN_TRAP_FLASH_PERIOD_MS = 3000;
+  const HIDDEN_TRAP_FLASH_PULSE_MS = 350;
 
   let logHistory = [];
   let liveLogs = [];
@@ -45,9 +47,71 @@ document.addEventListener("DOMContentLoaded", () => {
     { hp: 4, dmg: 3, color: "purple", sight: 6 },
   ];
 
+  const TRAP_TYPES = [
+    { type: "fire", color: "orange", dmg: 2, status: { kind: "burning", turns: 3, dmgPerTurn: 1 } },
+    { type: "poison", color: "lime", dmg: 1 },
+    { type: "spike", color: "silver", dmg: 1 },
+    { type: "shock", color: "yellow", dmg: 2 },
+  ];
+
   /* ===================== HELPERS ===================== */
 
   const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+
+  function roomCenter(r) {
+    return { x: Math.floor(r.x + r.w / 2), y: Math.floor(r.y + r.h / 2) };
+  }
+
+  function rectsOverlap(a, b, pad = 0) {
+    return !(
+      a.x + a.w + pad <= b.x - pad ||
+      b.x + b.w + pad <= a.x - pad ||
+      a.y + a.h + pad <= b.y - pad ||
+      b.y + b.h + pad <= a.y - pad
+    );
+  }
+
+  function distManhattan(a, b) {
+    return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+  }
+
+  function isWalkableTile(ch) {
+    return ch === "." || ch === "~" || ch === "T";
+  }
+
+  function getBurning(target) {
+    return target?.statusEffects?.burning || null;
+  }
+
+  function addBurning(target, turns = 3, dmgPerTurn = 1) {
+    if (!target) return;
+    if (!target.statusEffects) target.statusEffects = {};
+    const cur = target.statusEffects.burning;
+    if (!cur) target.statusEffects.burning = { turns, dmgPerTurn };
+    else {
+      target.statusEffects.burning = {
+        turns: Math.max(Number(cur.turns || 0), Number(turns || 0)),
+        dmgPerTurn: Math.max(Number(cur.dmgPerTurn || 0), Number(dmgPerTurn || 0)),
+      };
+    }
+  }
+
+  function tickStatusEffects(target, targetKind = "player") {
+    if (!target || typeof target.hp !== "number") return;
+    const burning = getBurning(target);
+    if (!burning?.turns) return;
+
+    const dmg = Math.max(0, Number(burning.dmgPerTurn || 0));
+    if (dmg) target.hp -= dmg;
+
+    burning.turns -= 1;
+    if (burning.turns <= 0) delete target.statusEffects.burning;
+
+    // Only spam logs for the player; enemies already have visible feedback and death logs.
+    if (targetKind === "player") {
+      addLog(`You are burning: -${dmg} hp`, dmg ? "danger" : "block");
+    }
+  }
 
   function escapeHtml(s) {
     return String(s)
@@ -107,7 +171,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function canMove(x, y) {
-    if (map[`${x},${y}`] !== ".") return false;
+    const ch = map[`${x},${y}`];
+    if (!isWalkableTile(ch)) return false;
     if (enemies.some((e) => e.x === x && e.y === y)) return false;
     return true;
   }
@@ -121,30 +186,78 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const roomCount = floor + 2;
 
-    for (let i = 0; i < roomCount; i++) {
-      const w = rand(5, 8);
-      const h = rand(4, 6);
-      const x = i === 0 ? 10 : rooms[i - 1].x + rooms[i - 1].w + rand(2, 4);
-      const y = i === 0 ? 10 : rooms[i - 1].y + rand(-2, 2);
-      const type = i === 0 ? "start" : i === roomCount - 1 ? "boss" : "enemy";
+    // --- Place rooms (non-overlapping), then connect via a graph ---
+    // Start room is anchored so the camera/controls feel consistent.
+    const startRoom = { x: 10, y: 10, w: rand(6, 9), h: rand(5, 7), type: "start" };
+    rooms.push(startRoom);
 
-      rooms.push({ x, y, w, h, type });
+    // Keep rooms in a bounded region so the dungeon feels cohesive.
+    const spread = Math.max(35, roomCount * 10);
+    const PAD = 2;
 
-      for (let ry = y; ry < y + h; ry++) {
-        for (let rx = x; rx < x + w; rx++) {
+    for (let i = 1; i < roomCount; i++) {
+      const w = rand(5, 9);
+      const h = rand(4, 7);
+
+      let placed = false;
+      for (let attempt = 0; attempt < 200; attempt++) {
+        const x = rand(4, 4 + spread);
+        const y = rand(4, 4 + spread);
+        const candidate = { x, y, w, h, type: "enemy" };
+        if (rooms.some((r) => rectsOverlap(candidate, r, PAD))) continue;
+        rooms.push(candidate);
+        placed = true;
+        break;
+      }
+
+      // Fallback: if we fail to pack nicely, place it loosely near the last room.
+      if (!placed) {
+        const prev = rooms[rooms.length - 1];
+        rooms.push({
+          x: prev.x + prev.w + rand(3, 6),
+          y: prev.y + rand(-6, 6),
+          w,
+          h,
+          type: "enemy",
+        });
+      }
+    }
+
+    // Pick boss room as the one farthest from start (keeps progression feel).
+    const sC = roomCenter(rooms[0]);
+    let bossIdx = 1;
+    let best = -1;
+    for (let i = 1; i < rooms.length; i++) {
+      const d = distManhattan(sC, roomCenter(rooms[i]));
+      if (d > best) {
+        best = d;
+        bossIdx = i;
+      }
+    }
+    rooms[bossIdx].type = "boss";
+
+    // Carve rooms.
+    for (const r of rooms) {
+      for (let ry = r.y; ry < r.y + r.h; ry++) {
+        for (let rx = r.x; rx < r.x + r.w; rx++) {
           map[`${rx},${ry}`] = ".";
         }
       }
+    }
 
-      if (i > 0) connectRooms(rooms[i - 1], rooms[i]);
+    // Connect rooms: MST ensures all rooms connected, then add a few extra edges for loops/randomness.
+    connectRoomGraph();
 
-      if (type === "enemy") {
-        spawnEnemies(x, y, w, h);
-        spawnPotion(x, y, w, h);
+    // Populate rooms.
+    for (const r of rooms) {
+      if (r.type === "enemy") {
+        spawnEnemies(r.x, r.y, r.w, r.h);
+        spawnPotion(r.x, r.y, r.w, r.h);
       }
     }
 
     placeTrapdoor();
+    placeTraps();
 
     const s = rooms[0];
     player.x = Math.floor(s.x + s.w / 2);
@@ -155,20 +268,103 @@ document.addEventListener("DOMContentLoaded", () => {
     draw();
   }
 
+  function connectRoomGraph() {
+    if (rooms.length <= 1) return;
+
+    const centers = rooms.map(roomCenter);
+    const edges = new Set(); // "a-b" with a<b
+    const keyOf = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
+
+    // Prim's algorithm for MST (Manhattan distance).
+    const inTree = new Set([0]);
+    while (inTree.size < rooms.length) {
+      let bestEdge = null;
+      let bestD = Infinity;
+      for (const i of inTree) {
+        for (let j = 0; j < rooms.length; j++) {
+          if (inTree.has(j)) continue;
+          const d = distManhattan(centers[i], centers[j]);
+          if (d < bestD) {
+            bestD = d;
+            bestEdge = [i, j];
+          }
+        }
+      }
+      if (!bestEdge) break;
+      const [a, b] = bestEdge;
+      edges.add(keyOf(a, b));
+      inTree.add(b);
+    }
+
+    // Add extra random connections (creates alternate routes/loops).
+    // Bias towards nearby rooms so hallways stay sane.
+    const allPairs = [];
+    for (let i = 0; i < rooms.length; i++) {
+      for (let j = i + 1; j < rooms.length; j++) {
+        allPairs.push([i, j, distManhattan(centers[i], centers[j])]);
+      }
+    }
+    allPairs.sort((a, b) => a[2] - b[2]);
+
+    const extraBudget = Math.max(1, Math.floor(rooms.length / 3));
+    let added = 0;
+    for (const [i, j, d] of allPairs) {
+      if (added >= extraBudget) break;
+      const k = keyOf(i, j);
+      if (edges.has(k)) continue;
+      const chance = d < 20 ? 0.18 : d < 35 ? 0.08 : 0.03;
+      if (Math.random() < chance) {
+        edges.add(k);
+        added++;
+      }
+    }
+
+    // Ensure the start room often has 2+ connections (room1 -> room2 and maybe 3/4).
+    if (rooms.length >= 3) {
+      const startNeighbors = [];
+      for (let j = 1; j < rooms.length; j++) startNeighbors.push([j, distManhattan(centers[0], centers[j])]);
+      startNeighbors.sort((a, b) => a[1] - b[1]);
+      const second = startNeighbors[1]?.[0];
+      const third = startNeighbors[2]?.[0];
+      if (second != null) edges.add(keyOf(0, second));
+      if (third != null && Math.random() < 0.5) edges.add(keyOf(0, third));
+    }
+
+    // Carve edges into corridors.
+    for (const e of edges) {
+      const [aStr, bStr] = e.split("-");
+      const a = Number(aStr);
+      const b = Number(bStr);
+      connectRooms(rooms[a], rooms[b]);
+    }
+  }
+
   function connectRooms(a, b) {
     const ax = Math.floor(a.x + a.w / 2);
     const ay = Math.floor(a.y + a.h / 2);
     const bx = Math.floor(b.x + b.w / 2);
     const by = Math.floor(b.y + b.h / 2);
 
-    for (let x = Math.min(ax, bx); x <= Math.max(ax, bx); x++) {
-      map[`${x},${ay}`] = ".";
-      map[`${x},${ay + 1}`] = ".";
-    }
+    const horizFirst = Math.random() < 0.5;
+    const carveH = (y, x1, x2) => {
+      for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
+        map[`${x},${y}`] = ".";
+        if (Math.random() < 0.85) map[`${x},${y + 1}`] = "."; // occasional 2-wide halls
+      }
+    };
+    const carveV = (x, y1, y2) => {
+      for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
+        map[`${x},${y}`] = ".";
+        if (Math.random() < 0.85) map[`${x + 1},${y}`] = ".";
+      }
+    };
 
-    for (let y = Math.min(ay, by); y <= Math.max(ay, by); y++) {
-      map[`${bx},${y}`] = ".";
-      map[`${bx + 1},${y}`] = ".";
+    if (horizFirst) {
+      carveH(ay, ax, bx);
+      carveV(bx, ay, by);
+    } else {
+      carveV(ax, ay, by);
+      carveH(by, ax, bx);
     }
   }
 
@@ -221,16 +417,73 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function placeTrapdoor() {
-    const r = rooms[rooms.length - 1];
+    const r = rooms.find((rr) => rr.type === "boss") || rooms[rooms.length - 1];
     const tx = Math.floor(r.x + r.w / 2);
     const ty = Math.floor(r.y + r.h / 2);
     map[`${tx},${ty}`] = "T";
   }
 
+  function placeTraps() {
+    const eligibleRooms = rooms.filter((r) => r.type === "enemy");
+    if (!eligibleRooms.length) return;
+
+    const trapCount = Math.min(12, Math.max(2, Math.floor(1 + floor * 0.9)));
+    for (let i = 0; i < trapCount; i++) {
+      const r = eligibleRooms[rand(0, eligibleRooms.length - 1)];
+      const trap = TRAP_TYPES[rand(0, TRAP_TYPES.length - 1)];
+      const hidden = Math.random() < 0.45;
+
+      let placed = false;
+      for (let attempt = 0; attempt < 80; attempt++) {
+        const x = rand(r.x, r.x + r.w - 1);
+        const y = rand(r.y, r.y + r.h - 1);
+        const key = `${x},${y}`;
+        if (map[key] !== ".") continue;
+        if (map[`${key}_loot`]) continue;
+        if (enemies.some((e) => e.x === x && e.y === y)) continue;
+
+        map[`${key}_trap`] = { ...trap, hidden };
+        if (!hidden) map[key] = "~";
+        placed = true;
+        break;
+      }
+
+      if (!placed) continue;
+    }
+  }
+
+  function triggerTrapAtEntity(x, y, target, targetKind = "player") {
+    const key = `${x},${y}`;
+    const trap = map[`${key}_trap`];
+    if (!trap) return false;
+
+    const toughness = Number(target?.toughness || 0);
+    const dmg = Math.max(0, Number(trap.dmg || 0) - toughness);
+
+    if (targetKind === "player") {
+      const prefix = trap.hidden ? "A hidden trap springs!" : "Trap!";
+      addLog(`${prefix} ${trap.type} deals ${dmg} damage`, dmg ? "danger" : "block");
+    } else {
+      const prefix = trap.hidden ? "Enemy triggers a hidden trap!" : "Enemy triggers a trap!";
+      addLog(`${prefix} ${trap.type} deals ${dmg} damage`, dmg ? "danger" : "block");
+    }
+
+    if (target && typeof target.hp === "number") target.hp -= dmg;
+    if (trap.status?.kind === "burning") {
+      addBurning(target, trap.status.turns ?? 3, trap.status.dmgPerTurn ?? 1);
+      if (targetKind === "player") addLog("You are burning!", "danger");
+    }
+
+    delete map[`${key}_trap`];
+    map[key] = ".";
+    return true;
+  }
+
   /* ===================== ENEMY AI ===================== */
 
   function moveEnemies() {
-    for (const e of enemies) {
+    for (let idx = enemies.length - 1; idx >= 0; idx--) {
+      const e = enemies[idx];
       const dx = player.x - e.x;
       const dy = player.y - e.y;
       const dist = Math.max(Math.abs(dx), Math.abs(dy));
@@ -239,9 +492,16 @@ document.addEventListener("DOMContentLoaded", () => {
         const dmg = Math.max(0, e.dmg - player.toughness);
         player.hp -= dmg;
         addLog(`Enemy hits you for ${dmg}`, dmg ? "enemy" : "block");
+        tickStatusEffects(e, "enemy");
+        if (e.hp <= 0) {
+          addLog("Enemy dies", "death");
+          enemies.splice(idx, 1);
+        }
         continue;
       }
 
+      const beforeX = e.x;
+      const beforeY = e.y;
       if (dist <= e.sight) {
         const sx = Math.sign(dx);
         const sy = Math.sign(dy);
@@ -262,6 +522,17 @@ document.addEventListener("DOMContentLoaded", () => {
             break;
           }
         }
+      }
+
+      // Enemies can trigger traps too (including hidden ones).
+      if (e.x !== beforeX || e.y !== beforeY) {
+        triggerTrapAtEntity(e.x, e.y, e, "enemy");
+      }
+
+      tickStatusEffects(e, "enemy");
+      if (e.hp <= 0) {
+        addLog("Enemy dies", "death");
+        enemies.splice(idx, 1);
       }
     }
   }
@@ -298,6 +569,9 @@ document.addEventListener("DOMContentLoaded", () => {
       player.y = ny;
     }
 
+    // Traps trigger when you step onto the tile (including hidden traps that look like floor).
+    triggerTrapAtEntity(player.x, player.y, player, "player");
+
     // Only pick up loot from the tile you are actually standing on.
     const pKey = `${player.x},${player.y}`;
     if (map[`${pKey}_loot`]) {
@@ -315,6 +589,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     moveEnemies();
+    tickStatusEffects(player, "player");
 
     if (player.hp <= 0) {
       addLog("You died", "danger");
@@ -434,11 +709,17 @@ document.addEventListener("DOMContentLoaded", () => {
         content = `<div class="menu-empty">Inventory empty</div>`;
       }
     } else if (activeTab === "status") {
+      const burning = getBurning(player);
+      const statusLines = [];
+      if (burning?.turns) {
+        statusLines.push(`You are burning -${burning.dmgPerTurn} hp per turn (${burning.turns} turns remaining)`);
+      }
       content = `<div class="menu-status">
         HP ${player.hp}/${player.maxHp}<br>
         DMG ${player.dmg}<br>
         Tough ${player.toughness}<br>
         Floor ${floor}
+        ${statusLines.length ? "<br><br>" + statusLines.map(escapeHtml).join("<br>") : ""}
       </div>`;
     } else {
       content = `<div class="menu-log">${logHistory
@@ -474,6 +755,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const enemyByPos = new Map();
     for (const e of enemies) enemyByPos.set(`${e.x},${e.y}`, e);
 
+    const tileSpan = (ch, color, extraStyle = "") => `<span style="color:${color};${extraStyle}">${ch}</span>`;
+    const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
+    const hiddenFlashOn = Date.now() % HIDDEN_TRAP_FLASH_PERIOD_MS < HIDDEN_TRAP_FLASH_PULSE_MS;
+
     // Map draw - center on player
     let out = "";
     for (let y = -VIEW_RADIUS; y <= VIEW_RADIUS; y++) {
@@ -482,14 +767,33 @@ document.addEventListener("DOMContentLoaded", () => {
         const ty = player.y + y;
         const key = `${tx},${ty}`;
 
-        if (tx === player.x && ty === player.y) out += `<span style="color:lime">@</span>`;
+        if (tx === player.x && ty === player.y) {
+          const extra = getBurning(player)?.turns ? burningOutlineCss : "";
+          out += tileSpan("@", "cyan", extra);
+        }
         else if (enemyByPos.has(key)) {
           const e = enemyByPos.get(key);
-          out += `<span style="color:${e.color}">E</span>`;
+          const extra = getBurning(e)?.turns ? burningOutlineCss : "";
+          out += tileSpan("E", e.color, extra);
         } else if (map[`${key}_loot`]) {
           const p = map[`${key}_loot`];
-          out += `<span style="color:${p.color}">${p.symbol}</span>`;
-        } else out += map[key] || "#";
+          out += tileSpan(p.symbol, p.color);
+        } else {
+          const ch = map[key] || "#";
+          const trap = map[`${key}_trap`];
+          if (trap) {
+            if (trap.hidden) {
+              // Hidden traps look like floor, but flash orange every few seconds.
+              out += tileSpan(".", hiddenFlashOn ? "orange" : "#555");
+            } else {
+              out += tileSpan("~", trap.color || "orange");
+            }
+          } else if (ch === ".") out += tileSpan(".", "#555"); // dark gray floors
+          else if (ch === "~") out += tileSpan("~", "orange"); // fallback (should normally be typed via _trap)
+          else if (ch === "#") out += tileSpan("#", "lime"); // green walls
+          else if (ch === "T") out += tileSpan("T", "lime"); // green trapdoor
+          else out += tileSpan(ch, "white");
+        }
       }
       out += "\n";
     }
@@ -621,4 +925,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   bindInputs();
   generateFloor();
+
+  // Redraw periodically so hidden trap flashing is visible.
+  window.setInterval(() => {
+    if (menuOpen) return;
+    draw();
+  }, 250);
 });
