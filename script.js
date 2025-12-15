@@ -48,6 +48,8 @@ document.addEventListener("DOMContentLoaded", () => {
     { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "gray" },
   ];
 
+  const RAT = { hp: 3, dmg: 1, color: "#666", sight: 4, symbol: "R", name: "Rat" };
+
   const ENEMY_TYPES = [
     { hp: 1, dmg: 1, color: "red", sight: 3 },
     { hp: 2, dmg: 2, color: "green", sight: 4 },
@@ -65,6 +67,30 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ===================== HELPERS ===================== */
 
   const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+
+  // Bell-curve-ish integer roll in [min,max] (triangular distribution).
+  function rollBellInt(min, max) {
+    const lo = Math.min(Number(min || 0), Number(max || 0));
+    const hi = Math.max(Number(min || 0), Number(max || 0));
+    if (hi <= lo) return lo;
+    const u = lo + (hi - lo) * Math.random();
+    const v = lo + (hi - lo) * Math.random();
+    const x = (u + v) / 2;
+    return Math.max(lo, Math.min(hi, Math.round(x)));
+  }
+
+  function chebDist(ax, ay, bx, by) {
+    return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
+  }
+
+  function isStepAllowed(fromX, fromY, toX, toY, isWalkableFn) {
+    if (!isWalkableFn(toX, toY)) return false;
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    if (!dx || !dy) return true; // not diagonal
+    // Prevent squeezing through diagonal corners.
+    return isWalkableFn(fromX + dx, fromY) && isWalkableFn(fromX, fromY + dy);
+  }
 
   function roomCenter(r) {
     return { x: Math.floor(r.x + r.w / 2), y: Math.floor(r.y + r.h / 2) };
@@ -237,6 +263,10 @@ document.addEventListener("DOMContentLoaded", () => {
       { dx: -1, dy: 0 },
       { dx: 0, dy: 1 },
       { dx: 0, dy: -1 },
+      { dx: 1, dy: 1 },
+      { dx: 1, dy: -1 },
+      { dx: -1, dy: 1 },
+      { dx: -1, dy: -1 },
     ];
 
     while (qi < q.length) {
@@ -248,7 +278,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const nk = keyOf(nx, ny);
         if (prev.has(nk)) continue;
-        if (!isPlayerWalkable(nx, ny)) continue;
+        if (!isStepAllowed(cur.x, cur.y, nx, ny, isPlayerWalkable)) continue;
 
         prev.set(nk, keyOf(cur.x, cur.y));
         if (nk === goalKey) {
@@ -290,6 +320,10 @@ document.addEventListener("DOMContentLoaded", () => {
         { x: targetX - 1, y: targetY },
         { x: targetX, y: targetY + 1 },
         { x: targetX, y: targetY - 1 },
+        { x: targetX + 1, y: targetY + 1 },
+        { x: targetX + 1, y: targetY - 1 },
+        { x: targetX - 1, y: targetY + 1 },
+        { x: targetX - 1, y: targetY - 1 },
       ].filter((p) => isPlayerWalkable(p.x, p.y));
 
       if (!adj.length) return;
@@ -330,7 +364,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (autoMove.attackTarget) {
         const ax = autoMove.attackTarget.x;
         const ay = autoMove.attackTarget.y;
-        const dist = Math.abs(player.x - ax) + Math.abs(player.y - ay);
+        const dist = chebDist(player.x, player.y, ax, ay);
         if (dist === 1) move(Math.sign(ax - player.x), Math.sign(ay - player.y));
       }
 
@@ -538,7 +572,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const count = rand(1, 2);
 
     for (let i = 0; i < count; i++) {
-      const t = ENEMY_TYPES[Math.min(Math.floor((floor - 1) / 10), ENEMY_TYPES.length - 1)];
+      // Spawn mix: regular enemies (E) plus occasional rats (R).
+      const regular = ENEMY_TYPES[Math.min(Math.floor((floor - 1) / 10), ENEMY_TYPES.length - 1)];
+      const t = Math.random() < 0.25 ? RAT : regular;
 
       let placed = false;
       for (let attempt = 0; attempt < 60; attempt++) {
@@ -554,13 +590,24 @@ document.addEventListener("DOMContentLoaded", () => {
           dmg: t.dmg,
           color: t.color,
           sight: t.sight,
+          symbol: t.symbol || "E",
+          name: t.name || "Enemy",
         });
         placed = true;
         break;
       }
 
       if (!placed) {
-        enemies.push({ x, y, hp: t.hp, dmg: t.dmg, color: t.color, sight: t.sight });
+        enemies.push({
+          x,
+          y,
+          hp: t.hp,
+          dmg: t.dmg,
+          color: t.color,
+          sight: t.sight,
+          symbol: t.symbol || "E",
+          name: t.name || "Enemy",
+        });
       }
     }
   }
@@ -921,14 +968,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function moveEnemies() {
+    const canEnemyStep = (fromX, fromY, toX, toY) => isStepAllowed(fromX, fromY, toX, toY, canMove);
+
     for (let idx = enemies.length - 1; idx >= 0; idx--) {
       const e = enemies[idx];
       const dx = player.x - e.x;
       const dy = player.y - e.y;
       const dist = Math.max(Math.abs(dx), Math.abs(dy));
 
-      if (Math.abs(dx) + Math.abs(dy) === 1) {
-        const dmg = Math.max(0, e.dmg - player.toughness);
+      if (dist === 1) {
+        const rolled = rollBellInt(0, e.dmg);
+        const dmg = Math.max(0, rolled - player.toughness);
         player.hp -= dmg;
         addLog(`Enemy hits you for ${dmg}`, dmg ? "enemy" : "block");
         tickStatusEffects(e, "enemy");
@@ -942,22 +992,50 @@ document.addEventListener("DOMContentLoaded", () => {
       const beforeX = e.x;
       const beforeY = e.y;
       if (dist <= e.sight) {
-        const sx = Math.sign(dx);
-        const sy = Math.sign(dy);
-        if (canMove(e.x + sx, e.y)) e.x += sx;
-        else if (canMove(e.x, e.y + sy)) e.y += sy;
+        const candidates = [
+          { x: e.x + Math.sign(dx), y: e.y + Math.sign(dy) },
+          { x: e.x + Math.sign(dx), y: e.y },
+          { x: e.x, y: e.y + Math.sign(dy) },
+          { x: e.x + Math.sign(dx), y: e.y - Math.sign(dy) },
+          { x: e.x - Math.sign(dx), y: e.y + Math.sign(dy) },
+          { x: e.x - Math.sign(dx), y: e.y },
+          { x: e.x, y: e.y - Math.sign(dy) },
+        ];
+
+        let best = null;
+        let bestD = Infinity;
+        for (const c of candidates) {
+          if (c.x === e.x && c.y === e.y) continue;
+          if (!canEnemyStep(e.x, e.y, c.x, c.y)) continue;
+          const d2 = chebDist(c.x, c.y, player.x, player.y);
+          if (d2 < bestD) {
+            bestD = d2;
+            best = c;
+          }
+        }
+
+        if (best) {
+          e.x = best.x;
+          e.y = best.y;
+        }
       } else {
         const dirs = [
           [1, 0],
           [-1, 0],
           [0, 1],
           [0, -1],
+          [1, 1],
+          [1, -1],
+          [-1, 1],
+          [-1, -1],
         ].sort(() => Math.random() - 0.5);
 
         for (const [mx, my] of dirs) {
-          if (canMove(e.x + mx, e.y + my)) {
-            e.x += mx;
-            e.y += my;
+          const nx = e.x + mx;
+          const ny = e.y + my;
+          if (canEnemyStep(e.x, e.y, nx, ny)) {
+            e.x = nx;
+            e.y = ny;
             break;
           }
         }
@@ -985,6 +1063,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const ny = player.y + dy;
     const nKey = keyOf(nx, ny);
     const tile = map[nKey] || "#";
+    const enemy = enemies.find((e) => e.x === nx && e.y === ny);
+
+    // Diagonal movement: prevent squeezing through corners.
+    if (dx && dy) {
+      const okCorner = isPlayerWalkable(player.x + dx, player.y) && isPlayerWalkable(player.x, player.y + dy);
+      if (!okCorner) return;
+      // If not attacking, also require the destination to be walkable.
+      if (!enemy && !isPlayerWalkable(nx, ny)) return;
+    }
 
     if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(nKey)) {
       // Only the entrance "false wall" can be broken by walking into it.
@@ -1000,10 +1087,10 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const enemy = enemies.find((e) => e.x === nx && e.y === ny);
     if (enemy) {
-      enemy.hp -= player.dmg;
-      addLog(`You hit enemy for ${player.dmg}`, "player");
+      const dealt = rollBellInt(0, player.dmg);
+      enemy.hp -= dealt;
+      addLog(`You hit enemy for ${dealt}`, dealt ? "player" : "block");
 
       if (enemy.hp <= 0) {
         addLog("Enemy dies", "death");
@@ -1169,7 +1256,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       content = `<div class="menu-status">
         HP ${player.hp}/${player.maxHp}<br>
-        DMG ${player.dmg}<br>
+        DMG 0-${player.dmg}<br>
         Tough ${player.toughness}<br>
         Floor ${floor}
         ${statusLines.length ? "<br><br>" + statusLines.map(escapeHtml).join("<br>") : ""}
@@ -1249,7 +1336,7 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (enemyByPos.has(key)) {
           const e = enemyByPos.get(key);
           const extra = getBurning(e)?.turns ? burningOutlineCss : "";
-          out += tileSpan("E", e.color, extra);
+          out += tileSpan(e.symbol || "E", e.color, extra);
         } else if (mouse && tx === mouse.x && ty === mouse.y) {
           // Mouse hint: visually smaller and offset between tiles.
           out += tileSpan("m", "#ddd", mouseCss);

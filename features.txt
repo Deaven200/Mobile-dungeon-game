@@ -8,11 +8,12 @@
 - ASCII map rendering; the dungeon is displayed as a character grid centered on the player
 - Sight; full-info sight radius is 6 tiles, plus an extra 3-tile ring that shows only walls/floors (no enemies/items/traps)
 - View size; the rendered view is 19x19 tiles (6+3 radius on each side)
-- Tile symbols; @=player, E=enemy, #=wall, .=floor, P=potion, T=trapdoor, ~=visible trap, m=mouse hint
+- Tile symbols; @=player, E=enemy, R=rat, #=wall, .=floor, P=potion, T=trapdoor, ~=visible trap, m=mouse hint
 - Auto-fit map font size; the ASCII map font scales to fit the screen/container
 - Hidden trap hint; hidden traps look like floor but periodically flash orange
 
 - Movement (tap-to-move); tap a tile on the map to auto-walk to it (pathfinding, step-by-step)
+- Diagonal movement; movement and pathfinding support 8 directions (no squeezing through diagonal corners)
 - Menu toggle; center button opens/closes the in-game menu and pauses gameplay
 
 - Menu tabs; Inventory, Status, and Log tabs
@@ -23,11 +24,14 @@
 - Player stats; HP, max HP, damage, toughness, and an inventory of potions
 - Toughness damage reduction; incoming damage from enemies and traps is reduced by toughness (minimum 0)
 
-- Melee combat (player); moving into an adjacent enemy attacks it for your damage
-- Melee combat (enemy); if an enemy is adjacent it attacks you on its turn
+- Melee combat (player); moving into an adjacent enemy (including diagonals) attacks it
+- Melee combat (enemy); if an enemy is adjacent (including diagonals) it attacks you on its turn
+- Bell-curve damage; attacks roll in a range with mid-values more likely (player base: 0–2)
 - Death/reset; when HP reaches 0 you die (alert), floor resets to 1, HP is restored, and a new floor is generated (stats persist)
 
-- Enemies; 1–2 enemies spawn in each enemy room and are shown as E on the map
+- Enemies; 1–2 enemies spawn in each enemy room (enemies can move diagonally)
+- Basic enemy (E); scaled by floor tier (HP/damage/sight)
+- Rat (R); 3 HP, 0–1 bell-curve attack, dark gray
 - Enemy types (4 tiers); enemies have different HP/damage/sight values based on floor bracket
 - Enemy scaling by floor; tier increases every 10 floors (capped at the strongest tier)
 - Enemy turns; enemies act after the player’s move
