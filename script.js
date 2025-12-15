@@ -356,9 +356,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===================== DRAW ===================== */
 
+  function updateMapFontSize() {
+    if (!mapContainerEl || !gameEl) return;
+    if (menuOpen) return;
+
+    // The visible map is (2*VIEW_RADIUS + 1) characters wide/tall.
+    const cols = VIEW_RADIUS * 2 + 1;
+    const rows = VIEW_RADIUS * 2 + 1;
+
+    const rect = mapContainerEl.getBoundingClientRect();
+    // mapContainer has 8px padding on each side in CSS.
+    const usableW = Math.max(0, rect.width - 16);
+    const usableH = Math.max(0, rect.height - 16);
+
+    // Slight safety margin so we don't clip on fractional pixels.
+    const cellPx = Math.floor(Math.min(usableW / cols, usableH / rows) * 0.98);
+    const fontPx = Math.max(12, Math.min(36, cellPx));
+
+    gameEl.style.fontSize = `${fontPx}px`;
+  }
+
   function renderMenuHtml() {
     const tabBtn = (tab, label) =>
       `<button type="button" data-tab="${tab}" class="${activeTab === tab ? "is-active" : ""}">${label}</button>`;
+    const actionBtn = (action, label) => `<button type="button" data-action="${action}">${label}</button>`;
 
     let content;
 
@@ -395,6 +416,7 @@ document.addEventListener("DOMContentLoaded", () => {
           ${tabBtn("inventory", "Inventory")}
           ${tabBtn("status", "Status")}
           ${tabBtn("log", "Log")}
+          ${actionBtn("close-menu", "Close")}
         </div>
         <div class="menu-content">${content}</div>
       </div>
@@ -437,6 +459,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     gameEl.innerHTML = out;
+    updateMapFontSize();
   }
 
   /* ===================== INPUTS ===================== */
@@ -470,6 +493,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!btn) return;
         if (!menuOpen) return;
 
+        if (btn.dataset.action === "close-menu") {
+          toggleMenu();
+          return;
+        }
+
         if (btn.dataset.tab) {
           setTab(btn.dataset.tab);
           return;
@@ -480,6 +508,8 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
     }
+
+    window.addEventListener("resize", () => updateMapFontSize());
 
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
