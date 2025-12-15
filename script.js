@@ -418,15 +418,23 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function triggerTrapAt(x, y) {
+  function triggerTrapAtEntity(x, y, target, targetKind = "player") {
     const key = `${x},${y}`;
     const trap = map[`${key}_trap`];
     if (!trap) return false;
 
-    const dmg = Math.max(0, (trap.dmg || 0) - player.toughness);
-    const prefix = trap.hidden ? "A hidden trap springs!" : "Trap!";
-    addLog(`${prefix} ${trap.type} deals ${dmg} damage`, dmg ? "danger" : "block");
-    player.hp -= dmg;
+    const toughness = Number(target?.toughness || 0);
+    const dmg = Math.max(0, Number(trap.dmg || 0) - toughness);
+
+    if (targetKind === "player") {
+      const prefix = trap.hidden ? "A hidden trap springs!" : "Trap!";
+      addLog(`${prefix} ${trap.type} deals ${dmg} damage`, dmg ? "danger" : "block");
+    } else {
+      const prefix = trap.hidden ? "Enemy triggers a hidden trap!" : "Enemy triggers a trap!";
+      addLog(`${prefix} ${trap.type} deals ${dmg} damage`, dmg ? "danger" : "block");
+    }
+
+    if (target && typeof target.hp === "number") target.hp -= dmg;
 
     delete map[`${key}_trap`];
     map[key] = ".";
@@ -436,7 +444,8 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ===================== ENEMY AI ===================== */
 
   function moveEnemies() {
-    for (const e of enemies) {
+    for (let idx = enemies.length - 1; idx >= 0; idx--) {
+      const e = enemies[idx];
       const dx = player.x - e.x;
       const dy = player.y - e.y;
       const dist = Math.max(Math.abs(dx), Math.abs(dy));
@@ -448,6 +457,8 @@ document.addEventListener("DOMContentLoaded", () => {
         continue;
       }
 
+      const beforeX = e.x;
+      const beforeY = e.y;
       if (dist <= e.sight) {
         const sx = Math.sign(dx);
         const sy = Math.sign(dy);
@@ -467,6 +478,15 @@ document.addEventListener("DOMContentLoaded", () => {
             e.y += my;
             break;
           }
+        }
+      }
+
+      // Enemies can trigger traps too (including hidden ones).
+      if (e.x !== beforeX || e.y !== beforeY) {
+        triggerTrapAtEntity(e.x, e.y, e, "enemy");
+        if (e.hp <= 0) {
+          addLog("Enemy dies to a trap", "death");
+          enemies.splice(idx, 1);
         }
       }
     }
@@ -505,7 +525,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Traps trigger when you step onto the tile (including hidden traps that look like floor).
-    triggerTrapAt(player.x, player.y);
+    triggerTrapAtEntity(player.x, player.y, player, "player");
 
     // Only pick up loot from the tile you are actually standing on.
     const pKey = `${player.x},${player.y}`;
