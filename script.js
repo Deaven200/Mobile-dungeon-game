@@ -474,6 +474,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const enemyByPos = new Map();
     for (const e of enemies) enemyByPos.set(`${e.x},${e.y}`, e);
 
+    const tileSpan = (ch, color) => `<span style="color:${color}">${ch}</span>`;
+
     // Map draw - center on player
     let out = "";
     for (let y = -VIEW_RADIUS; y <= VIEW_RADIUS; y++) {
@@ -482,14 +484,20 @@ document.addEventListener("DOMContentLoaded", () => {
         const ty = player.y + y;
         const key = `${tx},${ty}`;
 
-        if (tx === player.x && ty === player.y) out += `<span style="color:lime">@</span>`;
+        if (tx === player.x && ty === player.y) out += tileSpan("@", "cyan");
         else if (enemyByPos.has(key)) {
           const e = enemyByPos.get(key);
-          out += `<span style="color:${e.color}">E</span>`;
+          out += tileSpan("E", e.color);
         } else if (map[`${key}_loot`]) {
           const p = map[`${key}_loot`];
-          out += `<span style="color:${p.color}">${p.symbol}</span>`;
-        } else out += map[key] || "#";
+          out += tileSpan(p.symbol, p.color);
+        } else {
+          const ch = map[key] || "#";
+          if (ch === ".") out += tileSpan(".", "#555"); // dark gray floors
+          else if (ch === "#") out += tileSpan("#", "lime"); // green walls
+          else if (ch === "T") out += tileSpan("T", "lime"); // green trapdoor
+          else out += tileSpan(ch, "white");
+        }
       }
       out += "\n";
     }
