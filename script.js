@@ -885,24 +885,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     window.addEventListener("resize", () => updateMapFontSize());
-
-    window.addEventListener("keydown", (e) => {
-      if (e.repeat) return;
-
-      if (menuOpen) {
-        if (e.key === "Escape" || e.key === "m" || e.key === "M") {
-          e.preventDefault();
-          toggleMenu();
-        }
-        return;
-      }
-
-      if (e.key === "m" || e.key === "M") {
-        e.preventDefault();
-        toggleMenu();
-        return;
-      }
-    });
   }
 
   /* ===================== INIT ===================== */
