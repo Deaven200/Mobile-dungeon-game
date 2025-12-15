@@ -356,6 +356,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===================== DRAW ===================== */
 
+  let measureEl = null;
+
+  function getMonoCellMetricsPx(testFontPx = 100) {
+    // Measures actual monospace character width/height at a known font size.
+    // Returns width/height per 1px of font-size (so we can scale linearly).
+    if (!measureEl) {
+      measureEl = document.createElement("span");
+      measureEl.style.position = "fixed";
+      measureEl.style.left = "-9999px";
+      measureEl.style.top = "-9999px";
+      measureEl.style.visibility = "hidden";
+      measureEl.style.whiteSpace = "pre";
+      measureEl.style.fontFamily = "monospace";
+      measureEl.style.lineHeight = "1";
+      document.body.appendChild(measureEl);
+    }
+
+    const n = 40;
+    measureEl.style.fontSize = `${testFontPx}px`;
+    measureEl.textContent = "0".repeat(n);
+    const rect = measureEl.getBoundingClientRect();
+
+    const unitW = rect.width / (testFontPx * n);
+    const unitH = rect.height / testFontPx;
+
+    return { unitW, unitH };
+  }
+
   function updateMapFontSize() {
     if (!mapContainerEl || !gameEl) return;
     if (menuOpen) return;
@@ -369,11 +397,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const usableW = Math.max(0, rect.width - 16);
     const usableH = Math.max(0, rect.height - 16);
 
-    // Slight safety margin so we don't clip on fractional pixels.
-    const cellPx = Math.floor(Math.min(usableW / cols, usableH / rows) * 0.98);
-    const fontPx = Math.max(12, Math.min(36, cellPx));
+    const { unitW, unitH } = getMonoCellMetricsPx(120);
 
-    gameEl.style.fontSize = `${fontPx}px`;
+    // Max font that fits:
+    // - width: cols * (unitW * fontPx) <= usableW
+    // - height: rows * (unitH * fontPx) <= usableH
+    const maxByW = usableW / (cols * unitW);
+    const maxByH = usableH / (rows * unitH);
+
+    // Slight safety margin so we don't clip on fractional pixels.
+    const fontPx = Math.floor(Math.min(maxByW, maxByH) * 0.98);
+    const clamped = Math.max(12, Math.min(48, fontPx));
+
+    gameEl.style.fontSize = `${clamped}px`;
   }
 
   function renderMenuHtml() {
