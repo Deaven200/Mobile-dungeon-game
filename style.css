@@ -42,7 +42,7 @@ body {
   line-height: 1;
   white-space: pre;
   letter-spacing: 0;
-  margin: 0;
+  margin: 0 auto;
   /* Size to content so the ASCII block can be centered */
   width: fit-content;
   height: fit-content;
@@ -53,7 +53,7 @@ body {
   -webkit-tap-highlight-color: transparent;
   /* JS will auto-size this for the ASCII grid; this is just a fallback. */
   font-size: clamp(14px, 4.5vw, 28px);
-  display: block;
+  display: inline-block;
   text-align: left;
   font-variant-ligatures: none; /* avoid ligatures shifting glyph widths */
   font-feature-settings: "liga" 0, "calt" 0;
@@ -253,6 +253,8 @@ body.menu-open #liveLog {
 
 /* Menu mode: allow wrapping and scrolling inside #game */
 #game.is-menu {
+  display: block;
+  width: 100%;
   white-space: normal;
   line-height: 1.2;
   overflow: auto;

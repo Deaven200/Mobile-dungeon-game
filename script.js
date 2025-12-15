@@ -27,6 +27,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let map = {};
   let rooms = [];
   let enemies = [];
+  let hiddenArea = null; // { revealed, tiles:Set<string>, falseWalls:Set<string>, mouseFlashUntil:number }
+  let mouse = null; // { x, y }
 
   const gameEl = document.getElementById("game");
   const controlsEl = document.getElementById("controls");
@@ -73,6 +75,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function distManhattan(a, b) {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+  }
+
+  function keyOf(x, y) {
+    return `${x},${y}`;
+  }
+
+  function pointInRoom(x, y, r) {
+    return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+  }
+
+  function pointInCombatRoom(x, y) {
+    // "Combat rooms" are rooms that can contain enemies: enemy rooms and the boss room.
+    return rooms.some((r) => (r.type === "enemy" || r.type === "boss") && pointInRoom(x, y, r));
   }
 
   function isWalkableTile(ch) {
@@ -173,6 +188,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function canMove(x, y) {
     const ch = map[`${x},${y}`];
     if (!isWalkableTile(ch)) return false;
+    if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(keyOf(x, y))) return false;
     if (enemies.some((e) => e.x === x && e.y === y)) return false;
     return true;
   }
@@ -183,6 +199,8 @@ document.addEventListener("DOMContentLoaded", () => {
     map = {};
     rooms = [];
     enemies = [];
+    hiddenArea = null;
+    mouse = null;
 
     const roomCount = floor + 2;
 
@@ -258,10 +276,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     placeTrapdoor();
     placeTraps();
+    generateHiddenRoom();
 
     const s = rooms[0];
     player.x = Math.floor(s.x + s.w / 2);
     player.y = Math.floor(s.y + s.h / 2);
+    spawnMouse();
 
     // Always close menu when generating a new floor (death/descend).
     setMenuOpen(false);
@@ -452,6 +472,190 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function shouldHaveHiddenRoomOnFloor(f) {
+    if (f === 1) return true;
+    return Math.random() < 0.1;
+  }
+
+  function generateHiddenRoom() {
+    hiddenArea = null;
+    mouse = null;
+
+    if (!shouldHaveHiddenRoomOnFloor(floor)) return;
+
+    const eligibleAnchorRooms = rooms.filter((r) => r.type === "enemy");
+    if (!eligibleAnchorRooms.length) return;
+
+    const healthPotion = POTIONS.find((p) => p.name === "Health Potion") || POTIONS[0];
+    const hiddenPotion = floor === 1 ? healthPotion : POTIONS[rand(0, POTIONS.length - 1)];
+
+    const makeHiddenTrap = () => {
+      const base = TRAP_TYPES[rand(0, TRAP_TYPES.length - 1)];
+      return { ...base, hidden: true };
+    };
+
+    // Try many placements; if all fail, no hidden room this floor.
+    for (let attempt = 0; attempt < 220; attempt++) {
+      const r = eligibleAnchorRooms[rand(0, eligibleAnchorRooms.length - 1)];
+
+      // Pick a wall side. Corridor always 2 tiles wide.
+      const side = rand(0, 3); // 0=up,1=right,2=down,3=left
+      let dx = 0;
+      let dy = 0;
+      if (side === 0) dy = -1;
+      else if (side === 1) dx = 1;
+      else if (side === 2) dy = 1;
+      else dx = -1;
+
+      // Perpendicular unit vector for 2-wide hall.
+      const px = -dy;
+      const py = dx;
+
+      // We need two adjacent tiles along the wall, so keep away from corners.
+      // If room is too small for a 2-wide doorway on that side, skip.
+      let ex, ey;
+      if (dx !== 0) {
+        if (r.h < 4) continue;
+        const y0 = rand(r.y + 1, r.y + r.h - 3);
+        ex = dx > 0 ? r.x + r.w : r.x - 1;
+        ey = y0;
+      } else {
+        if (r.w < 4) continue;
+        const x0 = rand(r.x + 1, r.x + r.w - 3);
+        ex = x0;
+        ey = dy > 0 ? r.y + r.h : r.y - 1;
+      }
+
+      const hallLen = rand(4, 7);
+      const roomW = rand(5, 8);
+      const roomH = rand(4, 7);
+
+      // Room rectangle starts after the hallway.
+      // Align so the hallway feeds into a 2-wide doorway on the room edge.
+      let roomX, roomY;
+      if (dx === 1) {
+        roomX = ex + hallLen;
+        roomY = ey - rand(0, roomH - 2);
+      } else if (dx === -1) {
+        roomX = ex - hallLen - (roomW - 1);
+        roomY = ey - rand(0, roomH - 2);
+      } else if (dy === 1) {
+        roomY = ey + hallLen;
+        roomX = ex - rand(0, roomW - 2);
+      } else {
+        roomY = ey - hallLen - (roomH - 1);
+        roomX = ex - rand(0, roomW - 2);
+      }
+
+      const tiles = new Set();
+      const falseWalls = new Set();
+      const roomTiles = [];
+
+      // Hallway tiles (2-wide).
+      for (let i = 0; i < hallLen; i++) {
+        for (let off = 0; off < 2; off++) {
+          const hx = ex + dx * i + px * off;
+          const hy = ey + dy * i + py * off;
+          const k = keyOf(hx, hy);
+          tiles.add(k);
+          if (i === 0) falseWalls.add(k);
+        }
+      }
+
+      // Room tiles.
+      for (let yy = roomY; yy < roomY + roomH; yy++) {
+        for (let xx = roomX; xx < roomX + roomW; xx++) {
+          const k = keyOf(xx, yy);
+          tiles.add(k);
+          roomTiles.push(k);
+        }
+      }
+
+      // Validate: must be fully behind existing walls (no overlap with carved dungeon).
+      let ok = true;
+      for (const k of tiles) {
+        if (k.includes("_")) continue;
+        const ch = map[k];
+        if (ch === "." || ch === "T" || ch === "~" || ch === "P") {
+          ok = false;
+          break;
+        }
+        if (map[`${k}_loot`] || map[`${k}_trap`]) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+
+      // Carve the hidden hallway + room into the map data (but render as walls until revealed).
+      for (const k of tiles) map[k] = ".";
+
+      // Contents: exactly 1 potion and exactly 1 hidden trap (no enemies).
+      const candidates = roomTiles.filter((k) => !falseWalls.has(k));
+      if (candidates.length < 2) continue;
+
+      const potionKey = candidates[rand(0, candidates.length - 1)];
+      map[potionKey] = "P";
+      map[`${potionKey}_loot`] = hiddenPotion;
+
+      let trapKey = potionKey;
+      for (let t = 0; t < 40 && trapKey === potionKey; t++) {
+        trapKey = candidates[rand(0, candidates.length - 1)];
+      }
+      if (trapKey === potionKey) continue;
+      map[`${trapKey}_trap`] = makeHiddenTrap();
+
+      hiddenArea = {
+        revealed: false,
+        tiles,
+        falseWalls,
+        mouseFlashUntil: 0,
+      };
+
+      return;
+    }
+  }
+
+  function spawnMouse() {
+    mouse = null;
+    if (!hiddenArea) return;
+
+    const candidates = [];
+    for (const [k, v] of Object.entries(map)) {
+      if (v !== ".") continue;
+      if (k.includes("_")) continue;
+      if (hiddenArea.tiles.has(k) && !hiddenArea.revealed) continue;
+
+      const [xs, ys] = k.split(",");
+      const x = Number(xs);
+      const y = Number(ys);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+
+      if (x === player.x && y === player.y) continue;
+      if (enemies.some((e) => e.x === x && e.y === y)) continue;
+      if (pointInCombatRoom(x, y)) continue;
+
+      candidates.push({ x, y });
+    }
+
+    if (!candidates.length) {
+      // Fallback: pick a safe tile in the start room.
+      const s = rooms.find((r) => r.type === "start") || rooms[0];
+      if (!s) return;
+      for (let yy = s.y; yy < s.y + s.h; yy++) {
+        for (let xx = s.x; xx < s.x + s.w; xx++) {
+          const k = keyOf(xx, yy);
+          if ((map[k] || "#") !== ".") continue;
+          if (xx === player.x && yy === player.y) continue;
+          candidates.push({ x: xx, y: yy });
+        }
+      }
+    }
+
+    if (!candidates.length) return;
+    mouse = candidates[rand(0, candidates.length - 1)];
+  }
+
   function triggerTrapAtEntity(x, y, target, targetKind = "player") {
     const key = `${x},${y}`;
     const trap = map[`${key}_trap`];
@@ -480,6 +684,95 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /* ===================== ENEMY AI ===================== */
+
+  function canMouseMoveTo(x, y) {
+    const k = keyOf(x, y);
+    if (hiddenArea && !hiddenArea.revealed) {
+      if (hiddenArea.falseWalls?.has(k)) return true; // mouse can enter the false wall
+      if (hiddenArea.tiles?.has(k)) return false; // but not the hidden hall/room
+    }
+
+    const ch = map[k] || "#";
+    return ch === "." || ch === "T";
+  }
+
+  function moveMouse() {
+    if (!mouse || !hiddenArea) return;
+
+    // If the hidden area has already been revealed, the mouse just wanders.
+    const dist = Math.abs(player.x - mouse.x) + Math.abs(player.y - mouse.y);
+    const panic = !hiddenArea.revealed && dist <= 6;
+
+    let next = null;
+
+    if (panic) {
+      // Run toward the closest false-wall entrance tile.
+      let best = null;
+      let bestD = Infinity;
+      for (const k of hiddenArea.falseWalls) {
+        const [xs, ys] = k.split(",");
+        const tx = Number(xs);
+        const ty = Number(ys);
+        const d = Math.abs(tx - mouse.x) + Math.abs(ty - mouse.y);
+        if (d < bestD) {
+          bestD = d;
+          best = { x: tx, y: ty };
+        }
+      }
+
+      if (best) {
+        const stepX = Math.sign(best.x - mouse.x);
+        const stepY = Math.sign(best.y - mouse.y);
+
+        const options = [];
+        if (stepX) options.push({ x: mouse.x + stepX, y: mouse.y });
+        if (stepY) options.push({ x: mouse.x, y: mouse.y + stepY });
+        // If the greedy step is blocked, try the other axis, then random.
+        options.push(
+          ...[
+            { x: mouse.x + 1, y: mouse.y },
+            { x: mouse.x - 1, y: mouse.y },
+            { x: mouse.x, y: mouse.y + 1 },
+            { x: mouse.x, y: mouse.y - 1 },
+          ].sort(() => Math.random() - 0.5),
+        );
+
+        for (const c of options) {
+          if (canMouseMoveTo(c.x, c.y)) {
+            next = c;
+            break;
+          }
+        }
+      }
+    } else {
+      const dirs = [
+        { x: mouse.x + 1, y: mouse.y },
+        { x: mouse.x - 1, y: mouse.y },
+        { x: mouse.x, y: mouse.y + 1 },
+        { x: mouse.x, y: mouse.y - 1 },
+      ].sort(() => Math.random() - 0.5);
+
+      for (const c of dirs) {
+        if (canMouseMoveTo(c.x, c.y)) {
+          next = c;
+          break;
+        }
+      }
+    }
+
+    if (!next) return;
+
+    const nk = keyOf(next.x, next.y);
+    if (hiddenArea && !hiddenArea.revealed && hiddenArea.falseWalls?.has(nk)) {
+      // Mouse slips into the false wall, disappears, and hints the wall again.
+      mouse = null;
+      hiddenArea.mouseFlashUntil = Date.now() + 900;
+      return;
+    }
+
+    mouse.x = next.x;
+    mouse.y = next.y;
+  }
 
   function moveEnemies() {
     for (let idx = enemies.length - 1; idx >= 0; idx--) {
@@ -544,9 +837,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const nx = player.x + dx;
     const ny = player.y + dy;
-    const tile = map[`${nx},${ny}`] || "#";
+    const nKey = keyOf(nx, ny);
+    const tile = map[nKey] || "#";
 
-    if (tile === "#") return;
+    if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(nKey)) {
+      // Only the entrance "false wall" can be broken by walking into it.
+      if (hiddenArea.falseWalls?.has(nKey)) {
+        hiddenArea.revealed = true;
+        addLog("A false wall breaks and reveals a hidden passage!", "floor");
+        player.x = nx;
+        player.y = ny;
+      } else {
+        return;
+      }
+    } else if (tile === "#") {
+      return;
+    }
 
     const enemy = enemies.find((e) => e.x === nx && e.y === ny);
     if (enemy) {
@@ -588,6 +894,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    moveMouse();
     moveEnemies();
     tickStatusEffects(player, "player");
 
@@ -757,7 +1064,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const tileSpan = (ch, color, extraStyle = "") => `<span style="color:${color};${extraStyle}">${ch}</span>`;
     const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
+    const mouseCss =
+      "display:inline-block; transform: translate(0.28em, 0.16em) scale(0.65); transform-origin:center;";
     const hiddenFlashOn = Date.now() % HIDDEN_TRAP_FLASH_PERIOD_MS < HIDDEN_TRAP_FLASH_PULSE_MS;
+    const mouseWallPulseOn = Date.now() % 240 < 120;
 
     // Map draw - center on player
     let out = "";
@@ -775,6 +1085,15 @@ document.addEventListener("DOMContentLoaded", () => {
           const e = enemyByPos.get(key);
           const extra = getBurning(e)?.turns ? burningOutlineCss : "";
           out += tileSpan("E", e.color, extra);
+        } else if (mouse && tx === mouse.x && ty === mouse.y) {
+          // Mouse hint: visually smaller and offset between tiles.
+          out += tileSpan("m", "#ddd", mouseCss);
+        } else if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
+          // Hidden hallway/room are drawn as walls until revealed.
+          const isFalseWall = hiddenArea.falseWalls?.has(key);
+          const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
+          const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
+          out += tileSpan("#", color);
         } else if (map[`${key}_loot`]) {
           const p = map[`${key}_loot`];
           out += tileSpan(p.symbol, p.color);
@@ -822,8 +1141,43 @@ document.addEventListener("DOMContentLoaded", () => {
         const moveStr = btn.dataset.move;
         if (!moveStr) return;
         const [dx, dy] = moveStr.split(",").map(Number);
+        // Tap: move once. Hold: keep moving every 0.3s.
         move(dx, dy);
+
+        // Start hold-repeat for this pointer.
+        // (We store state on the function object to avoid extra globals.)
+        if (!bindInputs._hold) bindInputs._hold = { intervalId: null, pointerId: null };
+        const hold = bindInputs._hold;
+
+        if (hold.intervalId) window.clearInterval(hold.intervalId);
+        hold.pointerId = e.pointerId;
+
+        // Capture pointer so we reliably get the release/cancel events.
+        try {
+          btn.setPointerCapture(e.pointerId);
+        } catch {
+          // Some browsers may throw if capture isn't available; ignore.
+        }
+
+        hold.intervalId = window.setInterval(() => {
+          // Stop if menu opened (paused) or if the button is gone.
+          if (gamePaused || !btn.isConnected) return;
+          move(dx, dy);
+        }, 300);
       });
+
+      const stopHold = (e) => {
+        const hold = bindInputs._hold;
+        if (!hold?.intervalId) return;
+        if (hold.pointerId != null && e.pointerId != null && e.pointerId !== hold.pointerId) return;
+        window.clearInterval(hold.intervalId);
+        hold.intervalId = null;
+        hold.pointerId = null;
+      };
+
+      controlsEl.addEventListener("pointerup", stopHold);
+      controlsEl.addEventListener("pointercancel", stopHold);
+      controlsEl.addEventListener("lostpointercapture", stopHold);
     }
 
     if (gameEl) {
@@ -850,75 +1204,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     window.addEventListener("resize", () => updateMapFontSize());
-
-    window.addEventListener("keydown", (e) => {
-      if (e.repeat) return;
-
-      if (menuOpen) {
-        if (e.key === "Escape" || e.key === "m" || e.key === "M") {
-          e.preventDefault();
-          toggleMenu();
-        }
-        return;
-      }
-
-      if (e.key === "m" || e.key === "M") {
-        e.preventDefault();
-        toggleMenu();
-        return;
-      }
-
-      let dx = 0;
-      let dy = 0;
-
-      if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") dy = -1;
-      else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") dy = 1;
-      else if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") dx = -1;
-      else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") dx = 1;
-      else return;
-
-      e.preventDefault();
-      move(dx, dy);
-    });
-
-    // Swipe anywhere on the map to move (good on phones).
-    if (mapContainerEl) {
-      let start = null;
-      const SWIPE_MIN = 30;
-
-      mapContainerEl.addEventListener(
-        "touchstart",
-        (e) => {
-          if (gamePaused) return;
-          if (e.touches.length !== 1) return;
-          const t = e.touches[0];
-          start = { x: t.clientX, y: t.clientY };
-        },
-        { passive: true },
-      );
-
-      mapContainerEl.addEventListener(
-        "touchend",
-        (e) => {
-          if (gamePaused) return;
-          if (!start) return;
-          if (!e.changedTouches.length) return;
-
-          const t = e.changedTouches[0];
-          const dx = t.clientX - start.x;
-          const dy = t.clientY - start.y;
-          start = null;
-
-          const ax = Math.abs(dx);
-          const ay = Math.abs(dy);
-          if (Math.max(ax, ay) < SWIPE_MIN) return;
-
-          if (ax > ay) move(Math.sign(dx), 0);
-          else move(0, Math.sign(dy));
-        },
-        { passive: true },
-      );
-    }
   }
 
   /* ===================== INIT ===================== */
