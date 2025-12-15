@@ -48,7 +48,8 @@ body {
   overflow: hidden;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-  font-size: clamp(12px, 3.2vw, 20px);
+  /* JS will auto-size this for the ASCII grid; this is just a fallback. */
+  font-size: clamp(14px, 4.5vw, 28px);
   display: block;
   text-align: left;
   font-variant-ligatures: none; /* avoid ligatures shifting glyph widths */
