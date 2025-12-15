@@ -384,4 +384,3 @@ window.setTab = setTab;
 window.usePotion = usePotion;
 
 });
-1
