@@ -90,19 +90,8 @@ body {
   box-sizing: border-box;
 }
 
-/* ===== ARROW KEYS GRID ===== */
-.arrow-grid {
-  display: grid;
-  grid-template-columns: repeat(3, var(--btn));
-  grid-template-rows: repeat(3, var(--btn));
-  gap: var(--gap);
-  justify-content: center;
-  align-content: center;
-  width: max-content;
-  max-width: 100%;
-}
-
-button.arrow {
+/* ===== MENU BUTTON ONLY ===== */
+button.menu-button-only {
   appearance: none;
   -webkit-appearance: none;
   width: var(--btn);
@@ -117,34 +106,9 @@ button.arrow {
   user-select: none;
 }
 
-button.arrow:active {
+button.menu-button-only:active {
   transform: translateY(1px);
   background: rgba(20, 20, 20, 0.9);
-}
-
-.arrow-up {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-.arrow-left {
-  grid-column: 1;
-  grid-row: 2;
-}
-
-.arrow-center {
-  grid-column: 2;
-  grid-row: 2;
-}
-
-.arrow-right {
-  grid-column: 3;
-  grid-row: 2;
-}
-
-.arrow-down {
-  grid-column: 2;
-  grid-row: 3;
 }
 
 /* ===== MENU ===== */

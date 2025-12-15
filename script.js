@@ -6,7 +6,12 @@ document.addEventListener("DOMContentLoaded", () => {
   let activeTab = "inventory";
   let gamePaused = false;
 
-  const VIEW_RADIUS = 8;
+  // Sight model:
+  // - FULL_SIGHT_RADIUS: you can see everything (enemies, items, traps, etc.)
+  // - TERRAIN_ONLY_EXTRA_RADIUS: extra ring where you can only see walls/floors (no enemies/items/traps)
+  const FULL_SIGHT_RADIUS = 6;
+  const TERRAIN_ONLY_EXTRA_RADIUS = 3;
+  const VIEW_RADIUS = FULL_SIGHT_RADIUS + TERRAIN_ONLY_EXTRA_RADIUS;
   const LOG_LIFETIME = 3000;
   const HIDDEN_TRAP_FLASH_PERIOD_MS = 3000;
   const HIDDEN_TRAP_FLASH_PULSE_MS = 350;
@@ -29,6 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let enemies = [];
   let hiddenArea = null; // { revealed, tiles:Set<string>, falseWalls:Set<string>, mouseFlashUntil:number }
   let mouse = null; // { x, y }
+  let autoMove = { timerId: null, path: [], attackTarget: null };
 
   const gameEl = document.getElementById("game");
   const controlsEl = document.getElementById("controls");
@@ -41,6 +47,8 @@ document.addEventListener("DOMContentLoaded", () => {
     { name: "Strength Potion", effect: "damageBoost", value: 1, symbol: "P", color: "yellow" },
     { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "gray" },
   ];
+
+  const RAT = { hp: 3, dmg: 1, color: "#666", sight: 4, symbol: "R", name: "Rat" };
 
   const ENEMY_TYPES = [
     { hp: 1, dmg: 1, color: "red", sight: 3 },
@@ -59,6 +67,30 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ===================== HELPERS ===================== */
 
   const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+
+  // Bell-curve-ish integer roll in [min,max] (triangular distribution).
+  function rollBellInt(min, max) {
+    const lo = Math.min(Number(min || 0), Number(max || 0));
+    const hi = Math.max(Number(min || 0), Number(max || 0));
+    if (hi <= lo) return lo;
+    const u = lo + (hi - lo) * Math.random();
+    const v = lo + (hi - lo) * Math.random();
+    const x = (u + v) / 2;
+    return Math.max(lo, Math.min(hi, Math.round(x)));
+  }
+
+  function chebDist(ax, ay, bx, by) {
+    return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
+  }
+
+  function isStepAllowed(fromX, fromY, toX, toY, isWalkableFn) {
+    if (!isWalkableFn(toX, toY)) return false;
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    if (!dx || !dy) return true; // not diagonal
+    // Prevent squeezing through diagonal corners.
+    return isWalkableFn(fromX + dx, fromY) && isWalkableFn(fromX, fromY + dy);
+  }
 
   function roomCenter(r) {
     return { x: Math.floor(r.x + r.w / 2), y: Math.floor(r.y + r.h / 2) };
@@ -170,6 +202,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function setMenuOpen(open) {
     menuOpen = open;
     gamePaused = open;
+    if (open) stopAutoMove();
 
     document.body.classList.toggle("menu-open", open);
     if (gameEl) gameEl.classList.toggle("is-menu", open);
@@ -193,9 +226,156 @@ document.addEventListener("DOMContentLoaded", () => {
     return true;
   }
 
+  function stopAutoMove() {
+    if (autoMove?.timerId) window.clearInterval(autoMove.timerId);
+    autoMove = { timerId: null, path: [], attackTarget: null };
+  }
+
+  function isPlayerWalkable(x, y) {
+    const k = keyOf(x, y);
+    // Hidden area tiles block movement until revealed, except the entrance false-wall tiles.
+    if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k) && !hiddenArea.falseWalls?.has(k)) return false;
+
+    const tile = map[k] || "#";
+    if (tile === "#") return false;
+    if (enemies.some((e) => e.x === x && e.y === y)) return false;
+    return true;
+  }
+
+  function buildPathBfs(goalX, goalY) {
+    const startX = player.x;
+    const startY = player.y;
+    const startKey = keyOf(startX, startY);
+    const goalKey = keyOf(goalX, goalY);
+    if (goalKey === startKey) return [];
+
+    // The player can only tap within the visible grid, so keep BFS bounded for performance.
+    const LIMIT = Math.max(30, VIEW_RADIUS + 8);
+
+    const prev = new Map();
+    prev.set(startKey, null);
+
+    const q = [{ x: startX, y: startY }];
+    let qi = 0;
+
+    const dirs = [
+      { dx: 1, dy: 0 },
+      { dx: -1, dy: 0 },
+      { dx: 0, dy: 1 },
+      { dx: 0, dy: -1 },
+      { dx: 1, dy: 1 },
+      { dx: 1, dy: -1 },
+      { dx: -1, dy: 1 },
+      { dx: -1, dy: -1 },
+    ];
+
+    while (qi < q.length) {
+      const cur = q[qi++];
+      for (const d of dirs) {
+        const nx = cur.x + d.dx;
+        const ny = cur.y + d.dy;
+        if (Math.abs(nx - startX) > LIMIT || Math.abs(ny - startY) > LIMIT) continue;
+
+        const nk = keyOf(nx, ny);
+        if (prev.has(nk)) continue;
+        if (!isStepAllowed(cur.x, cur.y, nx, ny, isPlayerWalkable)) continue;
+
+        prev.set(nk, keyOf(cur.x, cur.y));
+        if (nk === goalKey) {
+          qi = q.length;
+          break;
+        }
+        q.push({ x: nx, y: ny });
+      }
+    }
+
+    if (!prev.has(goalKey)) return null;
+
+    const steps = [];
+    let curKey = goalKey;
+    while (curKey && curKey !== startKey) {
+      const parentKey = prev.get(curKey);
+      if (!parentKey) break;
+      const [cx, cy] = curKey.split(",").map(Number);
+      const [px, py] = parentKey.split(",").map(Number);
+      steps.push({ dx: cx - px, dy: cy - py });
+      curKey = parentKey;
+    }
+    steps.reverse();
+    return steps;
+  }
+
+  function startAutoMoveTo(targetX, targetY) {
+    stopAutoMove();
+    if (gamePaused || menuOpen) return;
+
+    const tile = map[keyOf(targetX, targetY)] || "#";
+    if (tile === "#") return;
+
+    // If tapping an enemy, path to an adjacent tile, then do one final attack step.
+    const enemy = enemies.find((e) => e.x === targetX && e.y === targetY);
+    if (enemy) {
+      const adj = [
+        { x: targetX + 1, y: targetY },
+        { x: targetX - 1, y: targetY },
+        { x: targetX, y: targetY + 1 },
+        { x: targetX, y: targetY - 1 },
+        { x: targetX + 1, y: targetY + 1 },
+        { x: targetX + 1, y: targetY - 1 },
+        { x: targetX - 1, y: targetY + 1 },
+        { x: targetX - 1, y: targetY - 1 },
+      ].filter((p) => isPlayerWalkable(p.x, p.y));
+
+      if (!adj.length) return;
+
+      let best = null;
+      for (const a of adj) {
+        const path = buildPathBfs(a.x, a.y);
+        if (!path) continue;
+        if (!best || path.length < best.path.length) best = { x: a.x, y: a.y, path };
+      }
+      if (!best) return;
+
+      autoMove.path = best.path;
+      autoMove.attackTarget = { x: targetX, y: targetY };
+    } else {
+      const path = buildPathBfs(targetX, targetY);
+      if (!path) return;
+      autoMove.path = path;
+      autoMove.attackTarget = null;
+    }
+
+    autoMove.timerId = window.setInterval(() => {
+      if (gamePaused || menuOpen) {
+        stopAutoMove();
+        return;
+      }
+
+      if (autoMove.path.length) {
+        const step = autoMove.path.shift();
+        if (!step) {
+          stopAutoMove();
+          return;
+        }
+        move(step.dx, step.dy);
+        return;
+      }
+
+      if (autoMove.attackTarget) {
+        const ax = autoMove.attackTarget.x;
+        const ay = autoMove.attackTarget.y;
+        const dist = chebDist(player.x, player.y, ax, ay);
+        if (dist === 1) move(Math.sign(ax - player.x), Math.sign(ay - player.y));
+      }
+
+      stopAutoMove();
+    }, 120);
+  }
+
   /* ===================== MAP GEN ===================== */
 
   function generateFloor() {
+    stopAutoMove();
     map = {};
     rooms = [];
     enemies = [];
@@ -392,7 +572,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const count = rand(1, 2);
 
     for (let i = 0; i < count; i++) {
-      const t = ENEMY_TYPES[Math.min(Math.floor((floor - 1) / 10), ENEMY_TYPES.length - 1)];
+      // Spawn mix: regular enemies (E) plus occasional rats (R).
+      const regular = ENEMY_TYPES[Math.min(Math.floor((floor - 1) / 10), ENEMY_TYPES.length - 1)];
+      const t = Math.random() < 0.25 ? RAT : regular;
 
       let placed = false;
       for (let attempt = 0; attempt < 60; attempt++) {
@@ -408,13 +590,24 @@ document.addEventListener("DOMContentLoaded", () => {
           dmg: t.dmg,
           color: t.color,
           sight: t.sight,
+          symbol: t.symbol || "E",
+          name: t.name || "Enemy",
         });
         placed = true;
         break;
       }
 
       if (!placed) {
-        enemies.push({ x, y, hp: t.hp, dmg: t.dmg, color: t.color, sight: t.sight });
+        enemies.push({
+          x,
+          y,
+          hp: t.hp,
+          dmg: t.dmg,
+          color: t.color,
+          sight: t.sight,
+          symbol: t.symbol || "E",
+          name: t.name || "Enemy",
+        });
       }
     }
   }
@@ -775,14 +968,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function moveEnemies() {
+    const canEnemyStep = (fromX, fromY, toX, toY) => isStepAllowed(fromX, fromY, toX, toY, canMove);
+
     for (let idx = enemies.length - 1; idx >= 0; idx--) {
       const e = enemies[idx];
       const dx = player.x - e.x;
       const dy = player.y - e.y;
       const dist = Math.max(Math.abs(dx), Math.abs(dy));
 
-      if (Math.abs(dx) + Math.abs(dy) === 1) {
-        const dmg = Math.max(0, e.dmg - player.toughness);
+      if (dist === 1) {
+        const rolled = rollBellInt(0, e.dmg);
+        const dmg = Math.max(0, rolled - player.toughness);
         player.hp -= dmg;
         addLog(`Enemy hits you for ${dmg}`, dmg ? "enemy" : "block");
         tickStatusEffects(e, "enemy");
@@ -796,22 +992,50 @@ document.addEventListener("DOMContentLoaded", () => {
       const beforeX = e.x;
       const beforeY = e.y;
       if (dist <= e.sight) {
-        const sx = Math.sign(dx);
-        const sy = Math.sign(dy);
-        if (canMove(e.x + sx, e.y)) e.x += sx;
-        else if (canMove(e.x, e.y + sy)) e.y += sy;
+        const candidates = [
+          { x: e.x + Math.sign(dx), y: e.y + Math.sign(dy) },
+          { x: e.x + Math.sign(dx), y: e.y },
+          { x: e.x, y: e.y + Math.sign(dy) },
+          { x: e.x + Math.sign(dx), y: e.y - Math.sign(dy) },
+          { x: e.x - Math.sign(dx), y: e.y + Math.sign(dy) },
+          { x: e.x - Math.sign(dx), y: e.y },
+          { x: e.x, y: e.y - Math.sign(dy) },
+        ];
+
+        let best = null;
+        let bestD = Infinity;
+        for (const c of candidates) {
+          if (c.x === e.x && c.y === e.y) continue;
+          if (!canEnemyStep(e.x, e.y, c.x, c.y)) continue;
+          const d2 = chebDist(c.x, c.y, player.x, player.y);
+          if (d2 < bestD) {
+            bestD = d2;
+            best = c;
+          }
+        }
+
+        if (best) {
+          e.x = best.x;
+          e.y = best.y;
+        }
       } else {
         const dirs = [
           [1, 0],
           [-1, 0],
           [0, 1],
           [0, -1],
+          [1, 1],
+          [1, -1],
+          [-1, 1],
+          [-1, -1],
         ].sort(() => Math.random() - 0.5);
 
         for (const [mx, my] of dirs) {
-          if (canMove(e.x + mx, e.y + my)) {
-            e.x += mx;
-            e.y += my;
+          const nx = e.x + mx;
+          const ny = e.y + my;
+          if (canEnemyStep(e.x, e.y, nx, ny)) {
+            e.x = nx;
+            e.y = ny;
             break;
           }
         }
@@ -839,6 +1063,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const ny = player.y + dy;
     const nKey = keyOf(nx, ny);
     const tile = map[nKey] || "#";
+    const enemy = enemies.find((e) => e.x === nx && e.y === ny);
+
+    // Diagonal movement: prevent squeezing through corners.
+    if (dx && dy) {
+      const okCorner = isPlayerWalkable(player.x + dx, player.y) && isPlayerWalkable(player.x, player.y + dy);
+      if (!okCorner) return;
+      // If not attacking, also require the destination to be walkable.
+      if (!enemy && !isPlayerWalkable(nx, ny)) return;
+    }
 
     if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(nKey)) {
       // Only the entrance "false wall" can be broken by walking into it.
@@ -854,10 +1087,10 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const enemy = enemies.find((e) => e.x === nx && e.y === ny);
     if (enemy) {
-      enemy.hp -= player.dmg;
-      addLog(`You hit enemy for ${player.dmg}`, "player");
+      const dealt = rollBellInt(0, player.dmg);
+      enemy.hp -= dealt;
+      addLog(`You hit enemy for ${dealt}`, dealt ? "player" : "block");
 
       if (enemy.hp <= 0) {
         addLog("Enemy dies", "death");
@@ -1023,7 +1256,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       content = `<div class="menu-status">
         HP ${player.hp}/${player.maxHp}<br>
-        DMG ${player.dmg}<br>
+        DMG 0-${player.dmg}<br>
         Tough ${player.toughness}<br>
         Floor ${floor}
         ${statusLines.length ? "<br><br>" + statusLines.map(escapeHtml).join("<br>") : ""}
@@ -1076,15 +1309,34 @@ document.addEventListener("DOMContentLoaded", () => {
         const tx = player.x + x;
         const ty = player.y + y;
         const key = `${tx},${ty}`;
+        const dist = Math.max(Math.abs(x), Math.abs(y)); // square distance
+        const terrainOnly = dist > FULL_SIGHT_RADIUS;
+
+        // Terrain-only ring: show walls/floors only (no enemies, items, traps, mouse, trapdoor).
+        if (terrainOnly) {
+          // Hidden hallway/room stays hidden as walls until revealed.
+          if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
+            const isFalseWall = hiddenArea.falseWalls?.has(key);
+            const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
+            const mouseWallPulseOn = Date.now() % 240 < 120;
+            const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
+            out += tileSpan("#", color);
+          } else {
+            const ch = map[key] || "#";
+            // Only terrain: walls and floors. Everything else renders as floor.
+            const t = ch === "#" ? "#" : ".";
+            out += t === "#" ? tileSpan("#", "lime") : tileSpan(".", "#555");
+          }
+          continue;
+        }
 
         if (tx === player.x && ty === player.y) {
           const extra = getBurning(player)?.turns ? burningOutlineCss : "";
           out += tileSpan("@", "cyan", extra);
-        }
-        else if (enemyByPos.has(key)) {
+        } else if (enemyByPos.has(key)) {
           const e = enemyByPos.get(key);
           const extra = getBurning(e)?.turns ? burningOutlineCss : "";
-          out += tileSpan("E", e.color, extra);
+          out += tileSpan(e.symbol || "E", e.color, extra);
         } else if (mouse && tx === mouse.x && ty === mouse.y) {
           // Mouse hint: visually smaller and offset between tiles.
           out += tileSpan("m", "#ddd", mouseCss);
@@ -1137,47 +1389,41 @@ document.addEventListener("DOMContentLoaded", () => {
           toggleMenu();
           return;
         }
-
-        const moveStr = btn.dataset.move;
-        if (!moveStr) return;
-        const [dx, dy] = moveStr.split(",").map(Number);
-        // Tap: move once. Hold: keep moving every 0.3s.
-        move(dx, dy);
-
-        // Start hold-repeat for this pointer.
-        // (We store state on the function object to avoid extra globals.)
-        if (!bindInputs._hold) bindInputs._hold = { intervalId: null, pointerId: null };
-        const hold = bindInputs._hold;
-
-        if (hold.intervalId) window.clearInterval(hold.intervalId);
-        hold.pointerId = e.pointerId;
-
-        // Capture pointer so we reliably get the release/cancel events.
-        try {
-          btn.setPointerCapture(e.pointerId);
-        } catch {
-          // Some browsers may throw if capture isn't available; ignore.
-        }
-
-        hold.intervalId = window.setInterval(() => {
-          // Stop if menu opened (paused) or if the button is gone.
-          if (gamePaused || !btn.isConnected) return;
-          move(dx, dy);
-        }, 300);
       });
+    }
 
-      const stopHold = (e) => {
-        const hold = bindInputs._hold;
-        if (!hold?.intervalId) return;
-        if (hold.pointerId != null && e.pointerId != null && e.pointerId !== hold.pointerId) return;
-        window.clearInterval(hold.intervalId);
-        hold.intervalId = null;
-        hold.pointerId = null;
-      };
+    // Tap-to-move on the map: tap a tile to auto-walk to it (step-by-step).
+    if (mapContainerEl) {
+      mapContainerEl.addEventListener("pointerdown", (e) => {
+        if (menuOpen || gamePaused) return;
+        // Don't treat button taps as movement (menu button lives outside, but be safe).
+        if (e.target.closest("button")) return;
 
-      controlsEl.addEventListener("pointerup", stopHold);
-      controlsEl.addEventListener("pointercancel", stopHold);
-      controlsEl.addEventListener("lostpointercapture", stopHold);
+        e.preventDefault();
+
+        const cols = VIEW_RADIUS * 2 + 1;
+        const rows = VIEW_RADIUS * 2 + 1;
+        const gRect = gameEl?.getBoundingClientRect?.();
+        if (!gRect) return;
+
+        const inGrid =
+          e.clientX >= gRect.left && e.clientX <= gRect.right && e.clientY >= gRect.top && e.clientY <= gRect.bottom;
+        if (!inGrid) return;
+
+        const fontPx = Number.parseFloat(window.getComputedStyle(gameEl).fontSize || "16");
+        const { unitW, unitH } = getMonoCellMetricsPx(120);
+        const cellW = unitW * fontPx;
+        const cellH = unitH * fontPx;
+        if (!cellW || !cellH) return;
+
+        const col = Math.floor((e.clientX - gRect.left) / cellW);
+        const row = Math.floor((e.clientY - gRect.top) / cellH);
+        if (col < 0 || col >= cols || row < 0 || row >= rows) return;
+
+        const tx = player.x + (col - VIEW_RADIUS);
+        const ty = player.y + (row - VIEW_RADIUS);
+        startAutoMoveTo(tx, ty);
+      });
     }
 
     if (gameEl) {
