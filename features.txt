@@ -1,0 +1,58 @@
+- Dungeon floors; procedural dungeon that regenerates each floor, with rooms connected by corridors
+- Floor progression; reaching the trapdoor increases the floor number and generates a new dungeon
+- Room count scaling; number of rooms per floor is floor + 2
+- Start room; player always spawns in an anchored start room near the same coordinates
+- Boss room; the room farthest from the start is marked as the boss room
+- Trapdoor (T); placed at the center of the boss room and used to descend to the next floor
+
+- ASCII map rendering; the dungeon is displayed as a character grid centered on the player
+- View radius; only a square area around the player is shown (17x17 tiles)
+- Tile symbols; @=player, E=enemy, #=wall, .=floor, P=potion, T=trapdoor, ~=visible trap
+- Auto-fit map font size; the map font scales to fit the screen/container
+
+- Movement (mobile buttons); on-screen arrow buttons move one tile per press
+- Movement (keyboard); Arrow keys or WASD move one tile per keypress
+- Movement (swipe); swiping on the map moves one tile in the swipe direction
+- Pause/menu toggle; center button or M key opens/closes the menu and pauses gameplay
+
+- Menu tabs; Inventory, Status, and Log tabs are available in the in-game menu
+- Inventory; picked-up potions appear as buttons you can tap/click to consume
+- Status screen; shows HP/max HP, damage, toughness, floor number, and active burning status
+- Log system; events are recorded in a history log and also shown briefly as a live overlay
+
+- Player stats; HP, max HP, damage, toughness, and an inventory of potions
+- Toughness damage reduction; incoming damage from enemies and traps is reduced by toughness (minimum 0)
+
+- Melee combat (player); moving into an adjacent enemy attacks it for your damage
+- Melee combat (enemy); if an enemy is adjacent it attacks you on its turn
+- Death/reset; when HP reaches 0 you die, see an alert, floor resets to 1, HP is restored, and a new floor is generated
+
+- Enemies; enemies spawn in enemy rooms and are shown as E on the map
+- Enemy types (4 tiers); enemies have different HP/damage/sight values based on floor bracket
+- Enemy scaling by floor; enemy tier increases every 10 floors (uses the strongest tier at high floors)
+- Enemy turns; enemies act after the player’s move
+- Enemy chasing; enemies chase the player when within their sight range
+- Enemy wandering; enemies move randomly when the player is outside their sight range
+- Enemy death; enemies are removed when their HP reaches 0
+- Potion drops; enemies have a 5% chance to drop a random potion on death
+
+- Potions (loot); potions can spawn in rooms and can be dropped by enemies
+- Potion spawn chance; each enemy room has a 5% chance to spawn a potion
+- Health Potion; fully heals you and increases your max HP by 1
+- Strength Potion; permanently increases your damage by 1
+- Toughness Potion; permanently increases your toughness by 1
+
+- Traps; traps are placed around enemy rooms each floor and trigger when stepped on
+- Trap count scaling; number of traps increases with floor (capped at 12)
+- Visible traps (~); visible traps are shown on the map as ~ in the trap’s color
+- Hidden traps; hidden traps look like normal floor but briefly flash to hint their location
+- Trap triggers; stepping onto a trap deals damage reduced by toughness, then the trap is removed
+- Enemy trap interaction; enemies can also trigger traps (including hidden traps)
+
+- Fire trap; deals 2 base damage and applies burning (3 turns, 1 damage per turn)
+- Poison trap; deals 1 base damage
+- Spike trap; deals 1 base damage
+- Shock trap; deals 2 base damage
+
+- Burning status effect; burning deals damage each turn for a set number of turns
+- Burning duration stacking; reapplying burning keeps the higher remaining turns and higher damage-per-turn
