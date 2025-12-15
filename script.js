@@ -822,8 +822,43 @@ document.addEventListener("DOMContentLoaded", () => {
         const moveStr = btn.dataset.move;
         if (!moveStr) return;
         const [dx, dy] = moveStr.split(",").map(Number);
+        // Tap: move once. Hold: keep moving every 0.3s.
         move(dx, dy);
+
+        // Start hold-repeat for this pointer.
+        // (We store state on the function object to avoid extra globals.)
+        if (!bindInputs._hold) bindInputs._hold = { intervalId: null, pointerId: null };
+        const hold = bindInputs._hold;
+
+        if (hold.intervalId) window.clearInterval(hold.intervalId);
+        hold.pointerId = e.pointerId;
+
+        // Capture pointer so we reliably get the release/cancel events.
+        try {
+          btn.setPointerCapture(e.pointerId);
+        } catch {
+          // Some browsers may throw if capture isn't available; ignore.
+        }
+
+        hold.intervalId = window.setInterval(() => {
+          // Stop if menu opened (paused) or if the button is gone.
+          if (gamePaused || !btn.isConnected) return;
+          move(dx, dy);
+        }, 300);
       });
+
+      const stopHold = (e) => {
+        const hold = bindInputs._hold;
+        if (!hold?.intervalId) return;
+        if (hold.pointerId != null && e.pointerId != null && e.pointerId !== hold.pointerId) return;
+        window.clearInterval(hold.intervalId);
+        hold.intervalId = null;
+        hold.pointerId = null;
+      };
+
+      controlsEl.addEventListener("pointerup", stopHold);
+      controlsEl.addEventListener("pointercancel", stopHold);
+      controlsEl.addEventListener("lostpointercapture", stopHold);
     }
 
     if (gameEl) {
@@ -867,58 +902,7 @@ document.addEventListener("DOMContentLoaded", () => {
         toggleMenu();
         return;
       }
-
-      let dx = 0;
-      let dy = 0;
-
-      if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") dy = -1;
-      else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") dy = 1;
-      else if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") dx = -1;
-      else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") dx = 1;
-      else return;
-
-      e.preventDefault();
-      move(dx, dy);
     });
-
-    // Swipe anywhere on the map to move (good on phones).
-    if (mapContainerEl) {
-      let start = null;
-      const SWIPE_MIN = 30;
-
-      mapContainerEl.addEventListener(
-        "touchstart",
-        (e) => {
-          if (gamePaused) return;
-          if (e.touches.length !== 1) return;
-          const t = e.touches[0];
-          start = { x: t.clientX, y: t.clientY };
-        },
-        { passive: true },
-      );
-
-      mapContainerEl.addEventListener(
-        "touchend",
-        (e) => {
-          if (gamePaused) return;
-          if (!start) return;
-          if (!e.changedTouches.length) return;
-
-          const t = e.changedTouches[0];
-          const dx = t.clientX - start.x;
-          const dy = t.clientY - start.y;
-          start = null;
-
-          const ax = Math.abs(dx);
-          const ay = Math.abs(dy);
-          if (Math.max(ax, ay) < SWIPE_MIN) return;
-
-          if (ax > ay) move(Math.sign(dx), 0);
-          else move(0, Math.sign(dy));
-        },
-        { passive: true },
-      );
-    }
   }
 
   /* ===================== INIT ===================== */
