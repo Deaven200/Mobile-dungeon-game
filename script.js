@@ -6,7 +6,12 @@ document.addEventListener("DOMContentLoaded", () => {
   let activeTab = "inventory";
   let gamePaused = false;
 
-  const VIEW_RADIUS = 8;
+  // Sight model:
+  // - FULL_SIGHT_RADIUS: you can see everything (enemies, items, traps, etc.)
+  // - TERRAIN_ONLY_EXTRA_RADIUS: extra ring where you can only see walls/floors (no enemies/items/traps)
+  const FULL_SIGHT_RADIUS = 9;
+  const TERRAIN_ONLY_EXTRA_RADIUS = 3;
+  const VIEW_RADIUS = FULL_SIGHT_RADIUS + TERRAIN_ONLY_EXTRA_RADIUS;
   const LOG_LIFETIME = 3000;
   const HIDDEN_TRAP_FLASH_PERIOD_MS = 3000;
   const HIDDEN_TRAP_FLASH_PULSE_MS = 350;
@@ -1076,12 +1081,31 @@ document.addEventListener("DOMContentLoaded", () => {
         const tx = player.x + x;
         const ty = player.y + y;
         const key = `${tx},${ty}`;
+        const dist = Math.max(Math.abs(x), Math.abs(y)); // square distance
+        const terrainOnly = dist > FULL_SIGHT_RADIUS;
+
+        // Terrain-only ring: show walls/floors only (no enemies, items, traps, mouse, trapdoor).
+        if (terrainOnly) {
+          // Hidden hallway/room stays hidden as walls until revealed.
+          if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
+            const isFalseWall = hiddenArea.falseWalls?.has(key);
+            const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
+            const mouseWallPulseOn = Date.now() % 240 < 120;
+            const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
+            out += tileSpan("#", color);
+          } else {
+            const ch = map[key] || "#";
+            // Only terrain: walls and floors. Everything else renders as floor.
+            const t = ch === "#" ? "#" : ".";
+            out += t === "#" ? tileSpan("#", "lime") : tileSpan(".", "#555");
+          }
+          continue;
+        }
 
         if (tx === player.x && ty === player.y) {
           const extra = getBurning(player)?.turns ? burningOutlineCss : "";
           out += tileSpan("@", "cyan", extra);
-        }
-        else if (enemyByPos.has(key)) {
+        } else if (enemyByPos.has(key)) {
           const e = enemyByPos.get(key);
           const extra = getBurning(e)?.turns ? burningOutlineCss : "";
           out += tileSpan("E", e.color, extra);
@@ -1137,47 +1161,32 @@ document.addEventListener("DOMContentLoaded", () => {
           toggleMenu();
           return;
         }
-
-        const moveStr = btn.dataset.move;
-        if (!moveStr) return;
-        const [dx, dy] = moveStr.split(",").map(Number);
-        // Tap: move once. Hold: keep moving every 0.3s.
-        move(dx, dy);
-
-        // Start hold-repeat for this pointer.
-        // (We store state on the function object to avoid extra globals.)
-        if (!bindInputs._hold) bindInputs._hold = { intervalId: null, pointerId: null };
-        const hold = bindInputs._hold;
-
-        if (hold.intervalId) window.clearInterval(hold.intervalId);
-        hold.pointerId = e.pointerId;
-
-        // Capture pointer so we reliably get the release/cancel events.
-        try {
-          btn.setPointerCapture(e.pointerId);
-        } catch {
-          // Some browsers may throw if capture isn't available; ignore.
-        }
-
-        hold.intervalId = window.setInterval(() => {
-          // Stop if menu opened (paused) or if the button is gone.
-          if (gamePaused || !btn.isConnected) return;
-          move(dx, dy);
-        }, 300);
       });
+    }
 
-      const stopHold = (e) => {
-        const hold = bindInputs._hold;
-        if (!hold?.intervalId) return;
-        if (hold.pointerId != null && e.pointerId != null && e.pointerId !== hold.pointerId) return;
-        window.clearInterval(hold.intervalId);
-        hold.intervalId = null;
-        hold.pointerId = null;
-      };
+    // Tap-to-move on the map: tap left/right/up/down halves to move one tile in that direction.
+    // (Uses dominant axis so diagonal taps resolve to a single step.)
+    if (mapContainerEl) {
+      mapContainerEl.addEventListener("pointerdown", (e) => {
+        if (menuOpen || gamePaused) return;
+        // Don't treat button taps as movement (menu button lives outside, but be safe).
+        if (e.target.closest("button")) return;
 
-      controlsEl.addEventListener("pointerup", stopHold);
-      controlsEl.addEventListener("pointercancel", stopHold);
-      controlsEl.addEventListener("lostpointercapture", stopHold);
+        e.preventDefault();
+
+        const rect = mapContainerEl.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const dx = e.clientX - cx;
+        const dy = e.clientY - cy;
+
+        const ax = Math.abs(dx);
+        const ay = Math.abs(dy);
+        if (ax < 6 && ay < 6) return; // small deadzone around center
+
+        if (ax >= ay) move(Math.sign(dx), 0);
+        else move(0, Math.sign(dy));
+      });
     }
 
     if (gameEl) {

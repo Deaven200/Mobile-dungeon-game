@@ -6,13 +6,13 @@
 - Trapdoor (T); placed at the center of the boss room and used to descend
 
 - ASCII map rendering; the dungeon is displayed as a character grid centered on the player
-- View radius; a 17x17 area is shown (VIEW_RADIUS=8)
+- Sight; full-info sight radius is 9 tiles, plus an extra 3-tile ring that shows only walls/floors (no enemies/items/traps)
+- View size; the rendered view is 25x25 tiles (9+3 radius on each side)
 - Tile symbols; @=player, E=enemy, #=wall, .=floor, P=potion, T=trapdoor, ~=visible trap, m=mouse hint
 - Auto-fit map font size; the ASCII map font scales to fit the screen/container
 - Hidden trap hint; hidden traps look like floor but periodically flash orange
 
-- Movement (mobile buttons); on-screen arrow buttons move one tile per press
-- Hold-to-move; holding an arrow repeats movement every 300ms
+- Movement (tap-to-move); tapping on the map moves one tile in the tapped direction (dominant axis)
 - Menu toggle; center button opens/closes the in-game menu and pauses gameplay
 
 - Menu tabs; Inventory, Status, and Log tabs
