@@ -145,9 +145,24 @@
   function describeEnemy(e) {
     const name = String(e?.name || "").toLowerCase();
     const sym = String(e?.symbol || "").toUpperCase();
-    if (name.includes("rat") || sym === "R") return pick(TEXTS.rat);
-    if (name.includes("goblin") || sym === "G") return pick(TEXTS.goblin);
-    return pick(TEXTS.enemy);
+    let desc = "";
+    if (name.includes("rat") || sym === "R") desc = pick(TEXTS.rat);
+    else if (name.includes("goblin") || sym === "G") desc = pick(TEXTS.goblin);
+    else if (name.includes("bat") || sym === "B") desc = pick(TEXTS.enemy);
+    else if (name.includes("skeleton") || sym === "S") desc = pick(TEXTS.enemy);
+    else if (name.includes("orc") || sym === "O") desc = pick(TEXTS.enemy);
+    else desc = pick(TEXTS.enemy);
+    
+    // Add HP info if setting is enabled
+    const showHealth = window.gameSettings?.showEnemyHealth !== false;
+    if (showHealth && e) {
+      if (typeof e.hp === "number" && typeof e.maxHp === "number") {
+        return `${desc} HP: ${e.hp}/${e.maxHp}`;
+      } else if (typeof e.hp === "number") {
+        return `${desc} HP: ${e.hp}`;
+      }
+    }
+    return desc;
   }
 
   // Public API: keep script.js small.
