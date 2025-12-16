@@ -50,7 +50,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "gray" },
   ];
 
-  const RAT = { hp: 3, dmg: 1, color: "#666", sight: 4, symbol: "R", name: "Rat" };
+  const RAT = { hp: 3, dmg: 1, color: "#666", sight: 4, symbol: "r", name: "Rat" };
 
   const ENEMY_TYPES = [
     { hp: 1, dmg: 1, color: "red", sight: 3 },
@@ -174,7 +174,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderLiveLog() {
     const logDiv = document.getElementById("liveLog");
     if (!logDiv) return;
-    logDiv.innerHTML = liveLogs.map((l) => `<div style="color:${l.color}">${escapeHtml(l.text)}</div>`).join("");
+    logDiv.innerHTML = liveLogs
+      .map((l) => `<div class="log-line" style="color:${l.color}">${escapeHtml(l.text)}</div>`)
+      .join("");
   }
 
   function addLog(text, type = "info") {
@@ -431,6 +433,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===================== MAP GEN ===================== */
 
+  function calculateRoomCountForFloor(f) {
+    // Floor 1 starts at 3 rooms. After that, the room count grows more slowly:
+    // Every 5 floors, it takes +1 more floor to earn +1 room (max: every 5 floors).
+    const baseRooms = 3;
+    const floorNum = Math.max(1, Number(f || 1));
+    if (floorNum <= 1) return baseRooms;
+
+    let roomCount = baseRooms;
+    let floorsSinceIncrease = 0;
+
+    for (let cur = 2; cur <= floorNum; cur++) {
+      const floorsPerRoom = Math.min(1 + Math.floor((cur - 1) / 5), 5);
+      floorsSinceIncrease += 1;
+      if (floorsSinceIncrease >= floorsPerRoom) {
+        roomCount += 1;
+        floorsSinceIncrease = 0;
+      }
+    }
+
+    return roomCount;
+  }
+
   function generateFloor() {
     stopAutoMove();
     map = {};
@@ -439,7 +463,7 @@ document.addEventListener("DOMContentLoaded", () => {
     hiddenArea = null;
     mouse = null;
 
-    const roomCount = floor + 2;
+    const roomCount = calculateRoomCountForFloor(floor);
 
     // --- Place rooms (non-overlapping), then connect via a graph ---
     // Start room is anchored so the camera/controls feel consistent.
@@ -629,9 +653,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const count = rand(1, 2);
 
     for (let i = 0; i < count; i++) {
-      // Spawn mix: regular enemies (E) plus occasional rats (R).
-      const regular = ENEMY_TYPES[Math.min(Math.floor((floor - 1) / 10), ENEMY_TYPES.length - 1)];
-      const t = Math.random() < 0.25 ? RAT : regular;
+      // All enemies are rats.
+      const t = RAT;
 
       let placed = false;
       for (let attempt = 0; attempt < 60; attempt++) {
@@ -647,8 +670,8 @@ document.addEventListener("DOMContentLoaded", () => {
           dmg: t.dmg,
           color: t.color,
           sight: t.sight,
-          symbol: t.symbol || "E",
-          name: t.name || "Enemy",
+          symbol: t.symbol || "r",
+          name: t.name || "Rat",
         });
         placed = true;
         break;
@@ -662,8 +685,8 @@ document.addEventListener("DOMContentLoaded", () => {
           dmg: t.dmg,
           color: t.color,
           sight: t.sight,
-          symbol: t.symbol || "E",
-          name: t.name || "Enemy",
+          symbol: t.symbol || "r",
+          name: t.name || "Rat",
         });
       }
     }
@@ -918,7 +941,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const prefix = trap.hidden ? "A hidden trap springs!" : "Trap!";
       addLog(`${prefix} ${trap.type} deals ${dmg} damage`, dmg ? "danger" : "block");
     } else {
-      const prefix = trap.hidden ? "Enemy triggers a hidden trap!" : "Enemy triggers a trap!";
+      const name = target?.name || "Enemy";
+      const prefix = trap.hidden ? `${name} triggers a hidden trap!` : `${name} triggers a trap!`;
       addLog(`${prefix} ${trap.type} deals ${dmg} damage`, dmg ? "danger" : "block");
     }
 
@@ -1029,6 +1053,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     for (let idx = enemies.length - 1; idx >= 0; idx--) {
       const e = enemies[idx];
+      const eName = e?.name || "Enemy";
       const dx = player.x - e.x;
       const dy = player.y - e.y;
       const dist = Math.max(Math.abs(dx), Math.abs(dy));
@@ -1037,10 +1062,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const rolled = rollBellInt(0, e.dmg);
         const dmg = Math.max(0, rolled - player.toughness);
         player.hp -= dmg;
-        addLog(`Enemy hits you for ${dmg}`, dmg ? "enemy" : "block");
+        addLog(`${eName} hits you for ${dmg}`, dmg ? "enemy" : "block");
         tickStatusEffects(e, "enemy");
         if (e.hp <= 0) {
-          addLog("Enemy dies", "death");
+          addLog(`${eName} dies`, "death");
           enemies.splice(idx, 1);
         }
         continue;
@@ -1105,7 +1130,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       tickStatusEffects(e, "enemy");
       if (e.hp <= 0) {
-        addLog("Enemy dies", "death");
+        addLog(`${eName} dies`, "death");
         enemies.splice(idx, 1);
       }
     }
@@ -1147,17 +1172,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (enemy) {
       const dealt = rollBellInt(0, player.dmg);
       enemy.hp -= dealt;
-      addLog(`You hit enemy for ${dealt}`, dealt ? "player" : "block");
+      addLog(`You hit ${(enemy?.name || "enemy").toLowerCase()} for ${dealt}`, dealt ? "player" : "block");
 
       if (enemy.hp <= 0) {
-        addLog("Enemy dies", "death");
+        addLog(`${enemy?.name || "Enemy"} dies`, "death");
         enemies = enemies.filter((e) => e !== enemy);
 
         if (Math.random() < 0.05) {
           const p = POTIONS[rand(0, POTIONS.length - 1)];
           map[`${nx},${ny}`] = "P";
           map[`${nx},${ny}_loot`] = p;
-          addLog("Enemy dropped a potion", "loot");
+          addLog(`${enemy?.name || "Enemy"} dropped a potion`, "loot");
         }
       }
     } else {
@@ -1320,7 +1345,7 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>`;
     } else {
       content = `<div class="menu-log">${logHistory
-        .map((l) => `<div style="color:${l.color}">${escapeHtml(l.text)}</div>`)
+        .map((l) => `<div class="log-line" style="color:${l.color}">${escapeHtml(l.text)}</div>`)
         .join("")}</div>`;
     }
 

@@ -62,9 +62,10 @@ body {
 /* ===== LIVE LOG ===== */
 #liveLog {
   position: fixed;
-  left: 0;
-  right: 0;
+  left: 50%;
+  right: auto;
   top: env(safe-area-inset-top);
+  transform: translateX(-50%);
   z-index: 10;
   pointer-events: none;
   padding: 8px 12px;
@@ -78,6 +79,21 @@ body {
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.8);
   max-height: 30dvh;
   overflow: hidden;
+  /* Black backing so logs stay readable over the map */
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  margin: 0 auto;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+#liveLog .log-line {
+  background: rgba(0, 0, 0, 0.85);
+  padding: 2px 8px;
+  border-radius: 10px;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* ===== CONTROLS ===== */
@@ -211,6 +227,18 @@ button.investigate-button.is-armed {
   box-sizing: border-box;
   min-height: 0;
   text-align: left;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+.menu-log .log-line {
+  display: block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.85);
+  margin: 2px 0;
+  box-sizing: border-box;
 }
 
 /* When menu is open, make it full-height and avoid overlaps */
