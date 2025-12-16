@@ -38,8 +38,8 @@ document.addEventListener("DOMContentLoaded", () => {
     dmg: 2,
     toughness: 0,
     inventory: [],
-    hunger: 40,
-    maxHunger: 40,
+    hunger: 10,
+    maxHunger: 10,
   };
 
   let map = {};
@@ -62,7 +62,7 @@ document.addEventListener("DOMContentLoaded", () => {
     { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "gray" },
   ];
 
-  const RAT_MEAT = { name: "Rat Meat", effect: "food", hunger: 14, heal: 1, symbol: "M", color: "#ff9aa7" };
+  const RAT_MEAT = { name: "Rat Meat", effect: "food", hunger: 2, heal: 0, symbol: "M", color: "#ff9aa7" };
 
   // Brighter colors for readability
   const RAT = { hp: 3, dmg: 1, color: "#bdbdbd", sight: 4, symbol: "r", name: "Rat" };
@@ -173,7 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function isWalkableTile(ch) {
-    return ch === "." || ch === "~" || ch === "T";
+    return ch === "." || ch === "~" || ch === "T" || ch === "C";
   }
 
   function getBurning(target) {
@@ -267,12 +267,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (hpLabel) hpLabel.textContent = `HP ${player.hp}/${player.maxHp}`;
-    if (hungerLabel) hungerLabel.textContent = `Hunger ${player.hunger}/${player.maxHunger}`;
+    if (hungerLabel) hungerLabel.textContent = `Hunger ${Number(player.hunger || 0).toFixed(1)}/${player.maxHunger}`;
   }
 
-  function tickHunger() {
+  function tickHunger(cost = 0) {
     // Hunger decreases with each player action.
-    player.hunger = Math.max(0, Number(player.hunger || 0) - 1);
+    const c = Math.max(0, Number(cost || 0));
+    player.hunger = Math.max(0, Number(player.hunger || 0) - c);
     if (player.hunger <= 0) {
       // Starvation: small damage each turn while empty.
       player.hp -= 1;
@@ -635,11 +636,31 @@ document.addEventListener("DOMContentLoaded", () => {
     const s = rooms[0];
     player.x = Math.floor(s.x + s.w / 2);
     player.y = Math.floor(s.y + s.h / 2);
+    placeCampfire();
     spawnMouse();
 
     // Always close menu when generating a new floor (death/descend).
     setMenuOpen(false);
     draw();
+  }
+
+  function placeCampfire() {
+    // 50% chance to spawn a campfire in the safe (start) room.
+    if (Math.random() >= 0.5) return;
+
+    const s = rooms.find((r) => r.type === "start") || rooms[0];
+    if (!s) return;
+
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const x = rand(s.x, s.x + s.w - 1);
+      const y = rand(s.y, s.y + s.h - 1);
+      const k = keyOf(x, y);
+      if ((map[k] || "#") !== ".") continue;
+      if (x === player.x && y === player.y) continue;
+      if (map[`${k}_loot`] || map[`${k}_trap`]) continue;
+      map[k] = "C";
+      return;
+    }
   }
 
   function connectRoomGraph() {
@@ -1272,7 +1293,7 @@ document.addEventListener("DOMContentLoaded", () => {
         enemies = enemies.filter((e) => e !== enemy);
 
         // Rat meat drop (rats only).
-        if ((enemy?.name || "").toLowerCase().includes("rat") && Math.random() < 0.18 && !map[`${nx},${ny}_loot`]) {
+        if ((enemy?.name || "").toLowerCase().includes("rat") && Math.random() < 0.2 && !map[`${nx},${ny}_loot`]) {
           map[`${nx},${ny}`] = RAT_MEAT.symbol;
           map[`${nx},${ny}_loot`] = RAT_MEAT;
           addLog("Rat dropped meat", "loot");
@@ -1288,7 +1309,9 @@ document.addEventListener("DOMContentLoaded", () => {
       player.y = ny;
     }
 
-    tickHunger();
+    // Hunger cost: move=0.1, attack=0.2
+    if (enemy) tickHunger(0.2);
+    else tickHunger(0.1);
 
     // Traps trigger when you step onto the tile (including hidden traps that look like floor).
     triggerTrapAtEntity(player.x, player.y, player, "player");
@@ -1578,6 +1601,7 @@ document.addEventListener("DOMContentLoaded", () => {
           else if (ch === "~") out += tileSpan("~", "orange"); // fallback (should normally be typed via _trap)
           else if (ch === "#") out += tileSpan("#", "lime"); // green walls
           else if (ch === "T") out += tileSpan("T", "#00ff3a", popCss); // trapdoor
+          else if (ch === "C") out += tileSpan("C", "orange", popCss); // campfire
           else out += tileSpan(ch, "white");
         }
       }
