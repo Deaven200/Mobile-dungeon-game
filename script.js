@@ -1423,6 +1423,7 @@ document.addEventListener("DOMContentLoaded", () => {
     for (const e of enemies) enemyByPos.set(`${e.x},${e.y}`, e);
 
     const tileSpan = (ch, color, extraStyle = "") => `<span style="color:${color};${extraStyle}">${ch}</span>`;
+    const dimCss = "opacity:0.5;";
     const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
     const mouseCss =
       "display:inline-block; transform: translate(0.28em, 0.16em) scale(0.65); transform-origin:center;";
@@ -1452,7 +1453,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const hiddenAsWall = hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key);
           const ch = hiddenAsWall ? "#" : map[key] || "#";
           const t = ch === "#" ? "#" : ".";
-          out += t === "#" ? tileSpan("#", "lime") : tileSpan(".", "#555");
+          out += t === "#" ? tileSpan("#", "lime", dimCss) : tileSpan(".", "#555", dimCss);
           continue;
         }
 
@@ -1466,12 +1467,12 @@ document.addEventListener("DOMContentLoaded", () => {
             const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
             const mouseWallPulseOn = Date.now() % 240 < 120;
             const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
-            out += tileSpan("#", color);
+            out += tileSpan("#", color, dimCss);
           } else {
             const ch = map[key] || "#";
             // Only terrain: walls and floors. Everything else renders as floor.
             const t = ch === "#" ? "#" : ".";
-            out += t === "#" ? tileSpan("#", "lime") : tileSpan(".", "#555");
+            out += t === "#" ? tileSpan("#", "lime", dimCss) : tileSpan(".", "#555", dimCss);
           }
           continue;
         }
@@ -1628,7 +1629,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const dist = Math.max(1, touchDist(pts[0], pts[1]));
         const minZoom = MIN_VIEW_RADIUS / BASE_VIEW_RADIUS;
         const maxZoom = MAX_VIEW_RADIUS / BASE_VIEW_RADIUS;
-        zoomScale = clamp(pinch.startZoom * (dist / pinch.startDist), minZoom, maxZoom);
+        // Invert pinch behavior: pinch OUT => zoom IN (show fewer tiles), pinch IN => zoom OUT.
+        zoomScale = clamp(pinch.startZoom * (pinch.startDist / dist), minZoom, maxZoom);
         draw();
         e.preventDefault();
       });
