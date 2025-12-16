@@ -9,10 +9,27 @@
 </head>
 <body>
 
-  <!-- Map Container (Top 75%) -->
-  <div id="mapContainer">
-    <div id="game" aria-label="Dungeon map"></div>
+  <!-- Main Menu Screen -->
+  <div id="mainMenu" class="screen-overlay">
+    <div class="menu-screen">
+      <h1 class="menu-title">Dungeon Roguelike</h1>
+      <div class="menu-buttons">
+        <button type="button" id="startGameBtn" class="menu-screen-button">Start Game</button>
+        <button type="button" id="loadGameBtn" class="menu-screen-button">Load Game</button>
+        <button type="button" id="settingsMenuBtn" class="menu-screen-button">Settings</button>
+        <button type="button" id="quitGameBtn" class="menu-screen-button" style="display: none;">Quit to Menu</button>
+      </div>
+    </div>
   </div>
+
+  <!-- Map Container (Top 75%) -->
+  <div id="mapContainer" style="display: none;">
+    <div id="game" aria-label="Dungeon map"></div>
+    <div id="damageNumbers"></div>
+  </div>
+
+  <!-- Floor Transition Screen -->
+  <div id="floorTransition" style="display: none;"></div>
 
   <!-- Live Log Overlay -->
   <div id="liveLog"></div>
@@ -22,16 +39,21 @@
     <!-- HUD (above buttons) -->
     <div id="hud" aria-label="HUD">
       <div class="hud-bar" aria-label="Health">
-        <div class="hud-bar-label" id="hpLabel">HP</div>
+        <div class="hud-bar-value" id="hpCurrent"></div>
         <div class="hud-bar-track">
           <div class="hud-bar-fill" id="hpFill"></div>
         </div>
+        <div class="hud-bar-value" id="hpMax"></div>
       </div>
       <div class="hud-bar" aria-label="Hunger">
-        <div class="hud-bar-label" id="hungerLabel">Hunger</div>
+        <div class="hud-bar-value" id="hungerCurrent"></div>
         <div class="hud-bar-track">
           <div class="hud-bar-fill" id="hungerFill"></div>
         </div>
+        <div class="hud-bar-value" id="hungerMax"></div>
+      </div>
+      <div class="hud-bar" aria-label="Floor">
+        <div class="hud-bar-label" id="floorLabel">Floor 1</div>
       </div>
     </div>
 
