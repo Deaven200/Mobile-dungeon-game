@@ -86,6 +86,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+  gap: var(--gap);
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
@@ -109,6 +110,16 @@ button.menu-button-only {
 button.menu-button-only:active {
   transform: translateY(1px);
   background: rgba(20, 20, 20, 0.9);
+}
+
+/* ===== INVESTIGATE BUTTON ===== */
+button.investigate-button {
+  border-color: #ff00ff;
+  color: #ff00ff;
+}
+
+button.investigate-button.is-armed {
+  background: rgba(255, 0, 255, 0.18);
 }
 
 /* ===== MENU ===== */

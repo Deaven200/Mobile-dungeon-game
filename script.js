@@ -5,6 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let menuOpen = false;
   let activeTab = "inventory";
   let gamePaused = false;
+  let investigateArmed = false;
 
   // Sight model:
   // - FULL_SIGHT_RADIUS: you can see everything (enemies, items, traps, etc.)
@@ -39,6 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const gameEl = document.getElementById("game");
   const controlsEl = document.getElementById("controls");
   const mapContainerEl = document.getElementById("mapContainer");
+  const investigateBtnEl = document.getElementById("investigateBtn");
 
   /* ===================== DATA ===================== */
 
@@ -203,9 +205,64 @@ document.addEventListener("DOMContentLoaded", () => {
     menuOpen = open;
     gamePaused = open;
     if (open) stopAutoMove();
+    if (open) setInvestigateArmed(false);
 
     document.body.classList.toggle("menu-open", open);
     if (gameEl) gameEl.classList.toggle("is-menu", open);
+  }
+
+  function setInvestigateArmed(armed) {
+    investigateArmed = !!armed;
+    if (investigateBtnEl) investigateBtnEl.classList.toggle("is-armed", investigateArmed);
+    if (investigateArmed) addLog("Investigation armed. Tap something on the map.", "info");
+  }
+
+  function getInvestigationInfoAt(tx, ty) {
+    const key = `${tx},${ty}`;
+
+    if (tx === player.x && ty === player.y) return { kind: "player" };
+
+    const enemy = enemies.find((e) => e.x === tx && e.y === ty);
+    if (enemy) return { kind: "enemy", enemy };
+
+    if (mouse && tx === mouse.x && ty === mouse.y) return { kind: "mouse" };
+
+    // Hidden area tiles render as walls until revealed.
+    if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
+      const isFalseWall = hiddenArea.falseWalls?.has(key);
+      return { kind: isFalseWall ? "falseWall" : "wall" };
+    }
+
+    const loot = map[`${key}_loot`];
+    if (loot) return { kind: "potion", potion: loot };
+
+    const trap = map[`${key}_trap`];
+    if (trap) return { kind: "trap", trap };
+
+    const ch = map[key] || "#";
+    if (ch === "T") return { kind: "trapdoor" };
+    if (ch === "#") return { kind: "wall" };
+    return { kind: "floor" };
+  }
+
+  function investigateAt(tx, ty) {
+    const info = getInvestigationInfoAt(tx, ty);
+    const describe = window.getInvestigationDescription;
+    const text = typeof describe === "function" ? describe(info) : "You investigate it. It investigates you back.";
+
+    const kind = String(info?.kind || "info").toLowerCase();
+    const logType =
+      kind === "enemy"
+        ? "enemy"
+        : kind === "trap"
+          ? "danger"
+          : kind === "potion"
+            ? "loot"
+            : kind === "trapdoor"
+              ? "floor"
+              : "info";
+
+    addLog(text, logType);
   }
 
   function toggleMenu() {
@@ -1389,6 +1446,11 @@ document.addEventListener("DOMContentLoaded", () => {
           toggleMenu();
           return;
         }
+        if (action === "investigate") {
+          if (menuOpen || gamePaused) return;
+          setInvestigateArmed(!investigateArmed);
+          return;
+        }
       });
     }
 
@@ -1422,6 +1484,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const tx = player.x + (col - VIEW_RADIUS);
         const ty = player.y + (row - VIEW_RADIUS);
+
+        if (investigateArmed) {
+          e.preventDefault();
+          setInvestigateArmed(false);
+          investigateAt(tx, ty);
+          return;
+        }
+
         startAutoMoveTo(tx, ty);
       });
     }
