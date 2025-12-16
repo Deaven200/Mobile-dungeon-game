@@ -12,13 +12,23 @@ document.addEventListener("DOMContentLoaded", () => {
   // - TERRAIN_ONLY_EXTRA_RADIUS: extra ring where you can only see walls/floors (no enemies/items/traps)
   const FULL_SIGHT_RADIUS = 6;
   const TERRAIN_ONLY_EXTRA_RADIUS = 3;
-  const VIEW_RADIUS = FULL_SIGHT_RADIUS + TERRAIN_ONLY_EXTRA_RADIUS;
+  const BASE_VIEW_RADIUS = FULL_SIGHT_RADIUS + TERRAIN_ONLY_EXTRA_RADIUS;
+  const MIN_VIEW_RADIUS = 5;
+  const MAX_VIEW_RADIUS = 25;
   const LOG_LIFETIME = 3000;
   const HIDDEN_TRAP_FLASH_PERIOD_MS = 3000;
   const HIDDEN_TRAP_FLASH_PULSE_MS = 350;
 
   let logHistory = [];
   let liveLogs = [];
+
+  // Fog-of-war: tiles you've seen stay visible (terrain only) when zoomed out.
+  let explored = new Set(); // Set<string> of "x,y"
+
+  // Pinch zoom: changes how many tiles are drawn (zoom out => more tiles).
+  let zoomScale = 1;
+  const touchPointers = new Map(); // pointerId -> {x,y}
+  let pinch = { active: false, startDist: 0, startZoom: 1 };
 
   let player = {
     x: 0,
@@ -70,6 +80,38 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ===================== HELPERS ===================== */
 
   const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+
+  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+  function getViewRadius() {
+    return clamp(Math.round(BASE_VIEW_RADIUS * zoomScale), MIN_VIEW_RADIUS, MAX_VIEW_RADIUS);
+  }
+
+  function markExploredAroundPlayer() {
+    // Mark everything in the current "sight rendering" square as explored.
+    for (let y = -BASE_VIEW_RADIUS; y <= BASE_VIEW_RADIUS; y++) {
+      for (let x = -BASE_VIEW_RADIUS; x <= BASE_VIEW_RADIUS; x++) {
+        const tx = player.x + x;
+        const ty = player.y + y;
+        explored.add(`${tx},${ty}`);
+      }
+    }
+  }
+
+  function getTwoTouchPoints() {
+    if (touchPointers.size < 2) return null;
+    const it = touchPointers.values();
+    const a = it.next().value;
+    const b = it.next().value;
+    if (!a || !b) return null;
+    return [a, b];
+  }
+
+  function touchDist(a, b) {
+    const dx = (a?.x ?? 0) - (b?.x ?? 0);
+    const dy = (a?.y ?? 0) - (b?.y ?? 0);
+    return Math.sqrt(dx * dx + dy * dy);
+  }
 
   // Bell-curve-ish integer roll in [min,max] (triangular distribution).
   function rollBellInt(min, max) {
@@ -310,7 +352,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (goalKey === startKey) return [];
 
     // The player can only tap within the visible grid, so keep BFS bounded for performance.
-    const LIMIT = Math.max(30, VIEW_RADIUS + 8);
+    const LIMIT = Math.max(30, getViewRadius() + 8);
 
     const prev = new Map();
     prev.set(startKey, null);
@@ -463,6 +505,7 @@ document.addEventListener("DOMContentLoaded", () => {
     enemies = [];
     hiddenArea = null;
     mouse = null;
+    explored = new Set();
 
     const roomCount = calculateRoomCountForFloor(floor);
 
@@ -1286,9 +1329,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!mapContainerEl || !gameEl) return;
     if (menuOpen) return;
 
-    // The visible map is (2*VIEW_RADIUS + 1) characters wide/tall.
-    const cols = VIEW_RADIUS * 2 + 1;
-    const rows = VIEW_RADIUS * 2 + 1;
+    const viewRadius = getViewRadius();
+    // The visible map is (2*viewRadius + 1) characters wide/tall.
+    const cols = viewRadius * 2 + 1;
+    const rows = viewRadius * 2 + 1;
 
     const rect = mapContainerEl.getBoundingClientRect();
     // mapContainer has 8px padding on each side in CSS.
@@ -1385,14 +1429,33 @@ document.addEventListener("DOMContentLoaded", () => {
     const hiddenFlashOn = Date.now() % HIDDEN_TRAP_FLASH_PERIOD_MS < HIDDEN_TRAP_FLASH_PULSE_MS;
     const mouseWallPulseOn = Date.now() % 240 < 120;
 
+    const viewRadius = getViewRadius();
+    markExploredAroundPlayer();
+
     // Map draw - center on player
     let out = "";
-    for (let y = -VIEW_RADIUS; y <= VIEW_RADIUS; y++) {
-      for (let x = -VIEW_RADIUS; x <= VIEW_RADIUS; x++) {
+    for (let y = -viewRadius; y <= viewRadius; y++) {
+      for (let x = -viewRadius; x <= viewRadius; x++) {
         const tx = player.x + x;
         const ty = player.y + y;
         const key = `${tx},${ty}`;
         const dist = Math.max(Math.abs(x), Math.abs(y)); // square distance
+
+        // Fog-of-war beyond current sight: show only explored terrain, hide unseen.
+        if (dist > BASE_VIEW_RADIUS) {
+          if (!explored.has(key)) {
+            out += " ";
+            continue;
+          }
+
+          // Hidden hallway/room stays hidden as walls until revealed.
+          const hiddenAsWall = hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key);
+          const ch = hiddenAsWall ? "#" : map[key] || "#";
+          const t = ch === "#" ? "#" : ".";
+          out += t === "#" ? tileSpan("#", "lime") : tileSpan(".", "#555");
+          continue;
+        }
+
         const terrainOnly = dist > FULL_SIGHT_RADIUS;
 
         // Terrain-only ring: show walls/floors only (no enemies, items, traps, mouse, trapdoor).
@@ -1487,10 +1550,34 @@ document.addEventListener("DOMContentLoaded", () => {
         // Don't treat button taps as movement (menu button lives outside, but be safe).
         if (e.target.closest("button")) return;
 
+        // Pinch zoom (touch): track pointers and, when 2 fingers are down, zoom instead of moving.
+        if (e.pointerType === "touch") {
+          touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          try {
+            mapContainerEl.setPointerCapture(e.pointerId);
+          } catch {
+            // ignore
+          }
+
+          if (touchPointers.size >= 2) {
+            pinch.active = true;
+            const pts = getTwoTouchPoints();
+            pinch.startDist = pts ? Math.max(1, touchDist(pts[0], pts[1])) : 1;
+            pinch.startZoom = zoomScale;
+            stopAutoMove(); // cancel any tap-to-move started by the first finger
+            if (investigateArmed) setInvestigateArmed(false);
+            e.preventDefault();
+            return;
+          }
+        }
+
+        if (pinch.active) return;
+
         e.preventDefault();
 
-        const cols = VIEW_RADIUS * 2 + 1;
-        const rows = VIEW_RADIUS * 2 + 1;
+        const viewRadius = getViewRadius();
+        const cols = viewRadius * 2 + 1;
+        const rows = viewRadius * 2 + 1;
         const gRect = gameEl?.getBoundingClientRect?.();
         if (!gRect) return;
 
@@ -1508,8 +1595,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const row = Math.floor((e.clientY - gRect.top) / cellH);
         if (col < 0 || col >= cols || row < 0 || row >= rows) return;
 
-        const tx = player.x + (col - VIEW_RADIUS);
-        const ty = player.y + (row - VIEW_RADIUS);
+        const tx = player.x + (col - viewRadius);
+        const ty = player.y + (row - viewRadius);
 
         if (investigateArmed) {
           e.preventDefault();
@@ -1520,6 +1607,40 @@ document.addEventListener("DOMContentLoaded", () => {
 
         startAutoMoveTo(tx, ty);
       });
+
+      mapContainerEl.addEventListener("pointermove", (e) => {
+        if (e.pointerType !== "touch") return;
+        if (!touchPointers.has(e.pointerId)) return;
+
+        touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (touchPointers.size !== 2) return;
+        if (!pinch.active) {
+          pinch.active = true;
+          const pts = getTwoTouchPoints();
+          pinch.startDist = pts ? Math.max(1, touchDist(pts[0], pts[1])) : 1;
+          pinch.startZoom = zoomScale;
+        }
+
+        const pts = getTwoTouchPoints();
+        if (!pts) return;
+
+        const dist = Math.max(1, touchDist(pts[0], pts[1]));
+        const minZoom = MIN_VIEW_RADIUS / BASE_VIEW_RADIUS;
+        const maxZoom = MAX_VIEW_RADIUS / BASE_VIEW_RADIUS;
+        zoomScale = clamp(pinch.startZoom * (dist / pinch.startDist), minZoom, maxZoom);
+        draw();
+        e.preventDefault();
+      });
+
+      const endTouch = (e) => {
+        if (e.pointerType !== "touch") return;
+        touchPointers.delete(e.pointerId);
+        if (touchPointers.size < 2) pinch.active = false;
+      };
+
+      mapContainerEl.addEventListener("pointerup", endTouch);
+      mapContainerEl.addEventListener("pointercancel", endTouch);
     }
 
     if (gameEl) {
