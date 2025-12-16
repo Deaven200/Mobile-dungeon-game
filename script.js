@@ -51,6 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
   ];
 
   const RAT = { hp: 3, dmg: 1, color: "#666", sight: 4, symbol: "r", name: "Rat" };
+  const GOBLIN = { hp: 6, dmg: 3, color: "green", sight: 5, symbol: "g", name: "Goblin" };
 
   const ENEMY_TYPES = [
     { hp: 1, dmg: 1, color: "red", sight: 3 },
@@ -653,8 +654,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const count = rand(1, 2);
 
     for (let i = 0; i < count; i++) {
-      // All enemies are rats.
-      const t = RAT;
+      // Floor 1-4: rats. Starting at floor 5: goblins replace rats.
+      const t = floor >= 5 ? GOBLIN : RAT;
 
       let placed = false;
       for (let attempt = 0; attempt < 60; attempt++) {
