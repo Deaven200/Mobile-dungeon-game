@@ -100,15 +100,14 @@ body {
 
 /* ===== CONTROLS ===== */
 #hud {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 0 12px 4px;
-  box-sizing: border-box;
   width: 100%;
   max-width: 520px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 0 6px;
+  box-sizing: border-box;
 }
 
 .hud-bar {
@@ -151,11 +150,19 @@ body {
 #controls {
   flex: 0 0 auto;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   gap: var(--gap);
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   box-sizing: border-box;
+}
+
+.controls-buttons {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--gap);
 }
 
 /* ===== MENU BUTTON ONLY ===== */

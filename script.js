@@ -58,19 +58,19 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ===================== DATA ===================== */
 
   const POTIONS = [
-    { name: "Health Potion", effect: "fullHeal", value: 1, symbol: "P", color: "red" },
-    { name: "Strength Potion", effect: "damageBoost", value: 1, symbol: "P", color: "yellow" },
-    { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "gray" },
+    { name: "Health Potion", effect: "fullHeal", value: 1, symbol: "P", color: "#ff3b3b" },
+    { name: "Strength Potion", effect: "damageBoost", value: 1, symbol: "P", color: "#ffe600" },
+    { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "#cfcfcf" },
   ];
 
-  const RAT_MEAT = { name: "Rat Meat", effect: "food", hunger: 2, heal: 0, symbol: "M", color: "#ff9aa7", cooked: false };
+  const RAT_MEAT = { name: "Rat Meat", effect: "food", hunger: 2, heal: 0, symbol: "M", color: "#ff7aa0", cooked: false };
   const COOKED_RAT_MEAT = {
     name: "Cooked Rat Meat",
     effect: "food",
     hunger: 5,
     heal: 0,
     symbol: "M",
-    color: "#ffcc8a",
+    color: "#ffb65c",
     cooked: true,
   };
 
@@ -1582,7 +1582,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const escCh = (ch) => escapeHtml(String(ch ?? ""));
     const tileSpan = (ch, color, extraStyle = "") => `<span style="color:${color};${extraStyle}">${escCh(ch)}</span>`;
     const dimCss = "opacity:0.5;";
-    const popCss = "font-weight:700; text-shadow: 0 0 6px currentColor;";
+    const popCss = "font-weight:700;";
     const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
     const mouseCss = "";
     const hiddenFlashOn = Date.now() % HIDDEN_TRAP_FLASH_PERIOD_MS < HIDDEN_TRAP_FLASH_PULSE_MS;
