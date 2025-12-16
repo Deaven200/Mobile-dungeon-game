@@ -60,6 +60,84 @@ body {
   font-feature-settings: "liga" 0, "calt" 0;
 }
 
+/* ===== DAMAGE NUMBERS ===== */
+#damageNumbers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+  overflow: hidden;
+}
+
+.damage-number {
+  position: absolute;
+  font-size: clamp(14px, 4vw, 20px);
+  font-weight: bold;
+  pointer-events: none;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  animation: floatUp 1s ease-out forwards;
+}
+
+@keyframes floatUp {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-40px) scale(1.2);
+  }
+}
+
+/* ===== FLOOR TRANSITION ===== */
+#floorTransition {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.95);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  font-size: clamp(16px, 4.5vw, 24px);
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+#floorTransition h2 {
+  margin: 0 0 20px 0;
+  color: var(--accent);
+  font-size: clamp(24px, 6vw, 36px);
+}
+
+#floorTransition .transition-stats {
+  margin: 10px 0;
+  text-align: center;
+}
+
+#floorTransition button {
+  margin-top: 20px;
+  padding: 12px 24px;
+  font-size: clamp(16px, 4vw, 20px);
+  border: 2px solid var(--accent);
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--accent);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+#floorTransition button:active {
+  background: rgba(0, 255, 255, 0.15);
+}
+
 /* ===== LIVE LOG ===== */
 #liveLog {
   position: fixed;
@@ -116,10 +194,15 @@ body {
   gap: 10px;
 }
 
-.hud-bar-label {
-  width: 80px;
+.hud-bar-value {
   font-size: clamp(12px, 3.2vw, 14px);
   color: rgba(255, 255, 255, 0.9);
+  min-width: 30px;
+  text-align: center;
+}
+
+.hud-bar:not(:has(.hud-bar-track)) {
+  justify-content: center;
 }
 
 .hud-bar-track {
@@ -215,19 +298,6 @@ button.investigate-button.is-armed {
   flex-wrap: wrap;
 }
 
-.menu-tabs button {
-  font-size: clamp(14px, 4vw, 18px);
-  padding: clamp(6px, 2vw, 10px);
-  border-radius: 10px;
-  border: 1px solid var(--accent);
-  background: rgba(0, 0, 0, 0.75);
-  color: var(--accent);
-  touch-action: manipulation;
-}
-
-.menu-tabs button.is-active {
-  background: rgba(0, 255, 255, 0.15);
-}
 
 .menu-content {
   flex: 1 1 auto;
@@ -323,6 +393,128 @@ body.menu-open #liveLog {
   align-items: stretch;
   justify-content: stretch;
   text-align: left;
+}
+
+/* ===== MAIN MENU ===== */
+.screen-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-screen {
+  width: 100%;
+  max-width: 500px;
+  padding: 20px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 30px;
+}
+
+.menu-title {
+  font-size: clamp(32px, 8vw, 48px);
+  color: var(--accent);
+  margin: 0;
+  text-align: center;
+  text-shadow: 0 0 10px var(--accent);
+}
+
+.menu-buttons {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  align-items: stretch;
+}
+
+.menu-screen-button {
+  width: 100%;
+  padding: 16px 24px;
+  font-size: clamp(18px, 4.5vw, 24px);
+  border: 2px solid var(--accent);
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--accent);
+  border-radius: 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+  font-family: monospace;
+  transition: all 0.2s;
+}
+
+.menu-screen-button:active {
+  background: rgba(0, 255, 255, 0.15);
+  transform: scale(0.98);
+}
+
+.menu-screen-button:hover {
+  background: rgba(0, 255, 255, 0.1);
+}
+
+/* Hide game elements when in main menu */
+body.in-main-menu #mapContainer,
+body.in-main-menu #controls,
+body.in-main-menu #liveLog {
+  display: none;
+}
+
+/* ===== IMPROVED IN-GAME MENU ===== */
+.menu-container {
+  padding: 10px;
+}
+
+.menu-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  border-bottom: 2px solid rgba(0, 255, 255, 0.3);
+  padding-bottom: 8px;
+}
+
+.menu-tabs button {
+  padding: 10px 16px;
+  font-size: clamp(14px, 3.5vw, 18px);
+  border: 1px solid var(--accent);
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--accent);
+  border-radius: 8px;
+  touch-action: manipulation;
+  transition: all 0.2s;
+}
+
+.menu-tabs button.is-active {
+  background: rgba(0, 255, 255, 0.2);
+  border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(0, 255, 255, 0.3);
+}
+
+.menu-tabs button:active {
+  transform: scale(0.95);
+}
+
+.menu-content {
+  padding: 10px 5px;
+}
+
+.menu-button {
+  min-width: 100px;
+  padding: 12px;
+  font-size: clamp(14px, 3.5vw, 18px);
+  transition: all 0.2s;
+}
+
+.menu-button:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* ===== RESPONSIVE ===== */
