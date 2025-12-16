@@ -60,8 +60,9 @@ document.addEventListener("DOMContentLoaded", () => {
     { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "gray" },
   ];
 
-  const RAT = { hp: 3, dmg: 1, color: "#666", sight: 4, symbol: "r", name: "Rat" };
-  const GOBLIN = { hp: 6, dmg: 3, color: "green", sight: 5, symbol: "g", name: "Goblin" };
+  // Brighter colors for readability
+  const RAT = { hp: 3, dmg: 1, color: "#bdbdbd", sight: 4, symbol: "r", name: "Rat" };
+  const GOBLIN = { hp: 6, dmg: 3, color: "#00ff3a", sight: 5, symbol: "g", name: "Goblin" };
 
   const ENEMY_TYPES = [
     { hp: 1, dmg: 1, color: "red", sight: 3 },
@@ -1439,12 +1440,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const escCh = (ch) => escapeHtml(String(ch ?? ""));
     const tileSpan = (ch, color, extraStyle = "") => `<span style="color:${color};${extraStyle}">${escCh(ch)}</span>`;
-    const outlinedSpan = (ch, color, extraStyle = "") =>
-      `<span class="tile-outlined" data-ch="${escCh(ch)}" style="color:${color};${extraStyle}">${escCh(ch)}</span>`;
     const dimCss = "opacity:0.5;";
+    const popCss = "font-weight:700; text-shadow: 0 0 6px currentColor;";
     const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
-    const mouseCss =
-      "display:inline-block; transform: translate(0.28em, 0.16em) scale(0.65); transform-origin:center;";
+    const mouseCss = "";
     const hiddenFlashOn = Date.now() % HIDDEN_TRAP_FLASH_PERIOD_MS < HIDDEN_TRAP_FLASH_PULSE_MS;
     const mouseWallPulseOn = Date.now() % 240 < 120;
 
@@ -1496,15 +1495,14 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (tx === player.x && ty === player.y) {
-          const extra = getBurning(player)?.turns ? burningOutlineCss : "";
-          out += outlinedSpan("@", "cyan", extra);
+          const extra = `${popCss}${getBurning(player)?.turns ? burningOutlineCss : ""}`;
+          out += tileSpan("@", "cyan", extra);
         } else if (enemyByPos.has(key)) {
           const e = enemyByPos.get(key);
-          const extra = getBurning(e)?.turns ? burningOutlineCss : "";
-          out += outlinedSpan(e.symbol || "E", e.color, extra);
+          const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
+          out += tileSpan(e.symbol || "E", e.color, extra);
         } else if (mouse && tx === mouse.x && ty === mouse.y) {
-          // Mouse hint: visually smaller and offset between tiles.
-          out += outlinedSpan("m", "#ddd", mouseCss);
+          out += tileSpan("m", "#eee", `${popCss}${mouseCss}`);
         } else if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
           // Hidden hallway/room are drawn as walls until revealed.
           const isFalseWall = hiddenArea.falseWalls?.has(key);
@@ -1513,7 +1511,7 @@ document.addEventListener("DOMContentLoaded", () => {
           out += tileSpan("#", color);
         } else if (map[`${key}_loot`]) {
           const p = map[`${key}_loot`];
-          out += outlinedSpan(p.symbol, p.color);
+          out += tileSpan(p.symbol, p.color, popCss);
         } else {
           const ch = map[key] || "#";
           const trap = map[`${key}_trap`];
@@ -1527,7 +1525,7 @@ document.addEventListener("DOMContentLoaded", () => {
           } else if (ch === ".") out += tileSpan(".", "#555"); // dark gray floors
           else if (ch === "~") out += tileSpan("~", "orange"); // fallback (should normally be typed via _trap)
           else if (ch === "#") out += tileSpan("#", "lime"); // green walls
-          else if (ch === "T") out += outlinedSpan("T", "lime"); // green trapdoor
+          else if (ch === "T") out += tileSpan("T", "#00ff3a", popCss); // trapdoor
           else out += tileSpan(ch, "white");
         }
       }
