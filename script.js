@@ -6,6 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let activeTab = "inventory";
   let gamePaused = false;
   let investigateArmed = false;
+  let cookingAtCampfire = false;
 
   // Sight model:
   // - FULL_SIGHT_RADIUS: you can see everything (enemies, items, traps, etc.)
@@ -62,7 +63,16 @@ document.addEventListener("DOMContentLoaded", () => {
     { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "gray" },
   ];
 
-  const RAT_MEAT = { name: "Rat Meat", effect: "food", hunger: 2, heal: 0, symbol: "M", color: "#ff9aa7" };
+  const RAT_MEAT = { name: "Rat Meat", effect: "food", hunger: 2, heal: 0, symbol: "M", color: "#ff9aa7", cooked: false };
+  const COOKED_RAT_MEAT = {
+    name: "Cooked Rat Meat",
+    effect: "food",
+    hunger: 5,
+    heal: 0,
+    symbol: "M",
+    color: "#ffcc8a",
+    cooked: true,
+  };
 
   // Brighter colors for readability
   const RAT = { hp: 3, dmg: 1, color: "#bdbdbd", sight: 4, symbol: "r", name: "Rat" };
@@ -286,9 +296,17 @@ document.addEventListener("DOMContentLoaded", () => {
     gamePaused = open;
     if (open) stopAutoMove();
     if (open) setInvestigateArmed(false);
+    if (!open) cookingAtCampfire = false;
 
     document.body.classList.toggle("menu-open", open);
     if (gameEl) gameEl.classList.toggle("is-menu", open);
+  }
+
+  function openCampfireMenu() {
+    cookingAtCampfire = true;
+    activeTab = "cook";
+    setMenuOpen(true);
+    draw();
   }
 
   function setInvestigateArmed(armed) {
@@ -1385,6 +1403,31 @@ document.addEventListener("DOMContentLoaded", () => {
     draw();
   }
 
+  function cookFood(i) {
+    if (!cookingAtCampfire) return;
+    const item = player.inventory[i];
+    if (!item || item.effect !== "food") return;
+    if (item.cooked) return;
+
+    let cooked;
+    const name = String(item.name || "").toLowerCase();
+    if (name.includes("rat meat")) cooked = COOKED_RAT_MEAT;
+    else {
+      const baseHunger = Math.max(0, Number(item.hunger || 0));
+      cooked = {
+        ...item,
+        name: `Cooked ${item.name || "Food"}`,
+        hunger: Math.max(baseHunger, Math.round(baseHunger * 2.5)),
+        color: item.color || "#ffd6a6",
+        cooked: true,
+      };
+    }
+
+    player.inventory[i] = cooked;
+    addLog(`Cooked ${item.name}`, "loot");
+    draw();
+  }
+
   /* ===================== DRAW ===================== */
 
   let measureEl = null;
@@ -1478,6 +1521,28 @@ document.addEventListener("DOMContentLoaded", () => {
         Floor ${floor}
         ${statusLines.length ? "<br><br>" + statusLines.map(escapeHtml).join("<br>") : ""}
       </div>`;
+    } else if (activeTab === "cook") {
+      if (!cookingAtCampfire) {
+        content = `<div class="menu-empty">No campfire.</div>`;
+      } else {
+        const cookables = player.inventory
+          .map((it, idx) => ({ it, idx }))
+          .filter(({ it }) => it?.effect === "food" && !it?.cooked);
+
+        if (!cookables.length) {
+          content = `<div class="menu-empty">No raw food to cook</div>`;
+        } else {
+          const buttons = cookables
+            .map(
+              ({ it, idx }) =>
+                `<button type="button" data-cook-food="${idx}" class="menu-button" style="color:${it.color || "#ffd6a6"};">Cook ${escapeHtml(
+                  it.name,
+                )}</button>`,
+            )
+            .join("");
+          content = `<div class="menu-inventory">${buttons}</div>`;
+        }
+      }
     } else {
       content = `<div class="menu-log">${logHistory
         .map((l) => `<div class="log-line" style="color:${l.color}">${escapeHtml(l.text)}</div>`)
@@ -1489,6 +1554,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="menu-tabs">
           ${tabBtn("inventory", "Inventory")}
           ${tabBtn("status", "Status")}
+          ${cookingAtCampfire ? tabBtn("cook", "Cook") : ""}
           ${tabBtn("log", "Log")}
           ${actionBtn("close-menu", "Close")}
         </div>
@@ -1690,6 +1756,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const tx = player.x + (col - viewRadius);
         const ty = player.y + (row - viewRadius);
+        const tappedKey = keyOf(tx, ty);
+        const tappedTile = map[tappedKey] || "#";
+
+        // Campfire: tap to open cooking menu when adjacent/on it.
+        if (tappedTile === "C") {
+          const d = chebDist(player.x, player.y, tx, ty);
+          if (d <= 1) {
+            openCampfireMenu();
+            return;
+          }
+          // If it's far, keep normal behavior: walk to it.
+        }
 
         if (investigateArmed) {
           e.preventDefault();
@@ -1756,6 +1834,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (btn.dataset.usePotion != null) {
           usePotion(Number(btn.dataset.usePotion));
+          return;
+        }
+
+        if (btn.dataset.cookFood != null) {
+          cookFood(Number(btn.dataset.cookFood));
         }
       });
     }
