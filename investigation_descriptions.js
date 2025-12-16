@@ -48,6 +48,12 @@
       "A rat. If it had a résumé, it would just say ‘biting’.",
     ],
 
+    goblin: [
+      "A goblin. Green, mean, and way too proud of it.",
+      "Goblin spotted. It looks like it bites *on purpose*.",
+      "A goblin. The kind of creature that thinks ambushes are a personality.",
+    ],
+
     potion: [
       "A potion. It’s either helpful or a prank. Mostly helpful.",
       "Potion spotted. Drink responsibly. Or don’t. That’s your brand.",
@@ -140,6 +146,7 @@
     const name = String(e?.name || "").toLowerCase();
     const sym = String(e?.symbol || "").toUpperCase();
     if (name.includes("rat") || sym === "R") return pick(TEXTS.rat);
+    if (name.includes("goblin") || sym === "G") return pick(TEXTS.goblin);
     return pick(TEXTS.enemy);
   }
 

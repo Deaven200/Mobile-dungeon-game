@@ -6,19 +6,30 @@ document.addEventListener("DOMContentLoaded", () => {
   let activeTab = "inventory";
   let gamePaused = false;
   let investigateArmed = false;
+  let cookingAtCampfire = false;
 
   // Sight model:
   // - FULL_SIGHT_RADIUS: you can see everything (enemies, items, traps, etc.)
   // - TERRAIN_ONLY_EXTRA_RADIUS: extra ring where you can only see walls/floors (no enemies/items/traps)
   const FULL_SIGHT_RADIUS = 6;
   const TERRAIN_ONLY_EXTRA_RADIUS = 3;
-  const VIEW_RADIUS = FULL_SIGHT_RADIUS + TERRAIN_ONLY_EXTRA_RADIUS;
+  const BASE_VIEW_RADIUS = FULL_SIGHT_RADIUS + TERRAIN_ONLY_EXTRA_RADIUS;
+  const MIN_VIEW_RADIUS = 5;
+  const MAX_VIEW_RADIUS = 25;
   const LOG_LIFETIME = 3000;
   const HIDDEN_TRAP_FLASH_PERIOD_MS = 3000;
   const HIDDEN_TRAP_FLASH_PULSE_MS = 350;
 
   let logHistory = [];
   let liveLogs = [];
+
+  // Fog-of-war: tiles you've seen stay visible (terrain only) when zoomed out.
+  let explored = new Set(); // Set<string> of "x,y"
+
+  // Pinch zoom: changes how many tiles are drawn (zoom out => more tiles).
+  let zoomScale = 1;
+  const touchPointers = new Map(); // pointerId -> {x,y}
+  let pinch = { active: false, startDist: 0, startZoom: 1 };
 
   let player = {
     x: 0,
@@ -28,6 +39,8 @@ document.addEventListener("DOMContentLoaded", () => {
     dmg: 2,
     toughness: 0,
     inventory: [],
+    hunger: 10,
+    maxHunger: 10,
   };
 
   let map = {};
@@ -45,12 +58,25 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ===================== DATA ===================== */
 
   const POTIONS = [
-    { name: "Health Potion", effect: "fullHeal", value: 1, symbol: "P", color: "red" },
-    { name: "Strength Potion", effect: "damageBoost", value: 1, symbol: "P", color: "yellow" },
-    { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "gray" },
+    { name: "Health Potion", effect: "fullHeal", value: 1, symbol: "P", color: "#ff3b3b" },
+    { name: "Strength Potion", effect: "damageBoost", value: 1, symbol: "P", color: "#ffe600" },
+    { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "#cfcfcf" },
   ];
 
-  const RAT = { hp: 3, dmg: 1, color: "#666", sight: 4, symbol: "R", name: "Rat" };
+  const RAT_MEAT = { name: "Rat Meat", effect: "food", hunger: 2, heal: 0, symbol: "M", color: "#ff7aa0", cooked: false };
+  const COOKED_RAT_MEAT = {
+    name: "Cooked Rat Meat",
+    effect: "food",
+    hunger: 5,
+    heal: 0,
+    symbol: "M",
+    color: "#ffb65c",
+    cooked: true,
+  };
+
+  // Brighter colors for readability
+  const RAT = { hp: 3, dmg: 1, color: "#bdbdbd", sight: 4, symbol: "r", name: "Rat" };
+  const GOBLIN = { hp: 6, dmg: 3, color: "#00ff3a", sight: 5, symbol: "g", name: "Goblin" };
 
   const ENEMY_TYPES = [
     { hp: 1, dmg: 1, color: "red", sight: 3 },
@@ -69,6 +95,38 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ===================== HELPERS ===================== */
 
   const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+
+  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+  function getViewRadius() {
+    return clamp(Math.round(BASE_VIEW_RADIUS * zoomScale), MIN_VIEW_RADIUS, MAX_VIEW_RADIUS);
+  }
+
+  function markExploredAroundPlayer() {
+    // Mark everything in the current "sight rendering" square as explored.
+    for (let y = -BASE_VIEW_RADIUS; y <= BASE_VIEW_RADIUS; y++) {
+      for (let x = -BASE_VIEW_RADIUS; x <= BASE_VIEW_RADIUS; x++) {
+        const tx = player.x + x;
+        const ty = player.y + y;
+        explored.add(`${tx},${ty}`);
+      }
+    }
+  }
+
+  function getTwoTouchPoints() {
+    if (touchPointers.size < 2) return null;
+    const it = touchPointers.values();
+    const a = it.next().value;
+    const b = it.next().value;
+    if (!a || !b) return null;
+    return [a, b];
+  }
+
+  function touchDist(a, b) {
+    const dx = (a?.x ?? 0) - (b?.x ?? 0);
+    const dy = (a?.y ?? 0) - (b?.y ?? 0);
+    return Math.sqrt(dx * dx + dy * dy);
+  }
 
   // Bell-curve-ish integer roll in [min,max] (triangular distribution).
   function rollBellInt(min, max) {
@@ -125,7 +183,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function isWalkableTile(ch) {
-    return ch === "." || ch === "~" || ch === "T";
+    return ch === "." || ch === "~" || ch === "T" || ch === "C";
   }
 
   function getBurning(target) {
@@ -174,7 +232,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderLiveLog() {
     const logDiv = document.getElementById("liveLog");
     if (!logDiv) return;
-    logDiv.innerHTML = liveLogs.map((l) => `<div style="color:${l.color}">${escapeHtml(l.text)}</div>`).join("");
+    logDiv.innerHTML = liveLogs
+      .map((l) => `<div class="log-line" style="color:${l.color}">${escapeHtml(l.text)}</div>`)
+      .join("");
   }
 
   function addLog(text, type = "info") {
@@ -201,14 +261,52 @@ document.addEventListener("DOMContentLoaded", () => {
     }, LOG_LIFETIME);
   }
 
+  function updateHud() {
+    const hpFill = document.getElementById("hpFill");
+    const hungerFill = document.getElementById("hungerFill");
+    const hpLabel = document.getElementById("hpLabel");
+    const hungerLabel = document.getElementById("hungerLabel");
+
+    if (hpFill) {
+      const pct = player.maxHp ? (player.hp / player.maxHp) * 100 : 0;
+      hpFill.style.width = `${clamp(pct, 0, 100)}%`;
+    }
+    if (hungerFill) {
+      const pct = player.maxHunger ? (player.hunger / player.maxHunger) * 100 : 0;
+      hungerFill.style.width = `${clamp(pct, 0, 100)}%`;
+    }
+
+    if (hpLabel) hpLabel.textContent = `HP ${player.hp}/${player.maxHp}`;
+    if (hungerLabel) hungerLabel.textContent = `Hunger ${Number(player.hunger || 0).toFixed(1)}/${player.maxHunger}`;
+  }
+
+  function tickHunger(cost = 0) {
+    // Hunger decreases with each player action.
+    const c = Math.max(0, Number(cost || 0));
+    player.hunger = Math.max(0, Number(player.hunger || 0) - c);
+    if (player.hunger <= 0) {
+      // Starvation: small damage each turn while empty.
+      player.hp -= 1;
+      addLog("You are starving: -1 hp", "danger");
+    }
+  }
+
   function setMenuOpen(open) {
     menuOpen = open;
     gamePaused = open;
     if (open) stopAutoMove();
     if (open) setInvestigateArmed(false);
+    if (!open) cookingAtCampfire = false;
 
     document.body.classList.toggle("menu-open", open);
     if (gameEl) gameEl.classList.toggle("is-menu", open);
+  }
+
+  function openCampfireMenu() {
+    cookingAtCampfire = true;
+    activeTab = "cook";
+    setMenuOpen(true);
+    draw();
   }
 
   function setInvestigateArmed(armed) {
@@ -283,6 +381,21 @@ document.addEventListener("DOMContentLoaded", () => {
     return true;
   }
 
+  function canEnemyMove(x, y) {
+    const k = keyOf(x, y);
+    const ch = map[k];
+    if (!isWalkableTile(ch)) return false;
+    if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k)) return false;
+    if (enemies.some((e) => e.x === x && e.y === y)) return false;
+
+    // Enemies avoid visible traps (~), but can still step on hidden traps (they look like floor).
+    if (ch === "~") return false;
+    const trap = map[`${k}_trap`];
+    if (trap && !trap.hidden) return false;
+
+    return true;
+  }
+
   function stopAutoMove() {
     if (autoMove?.timerId) window.clearInterval(autoMove.timerId);
     autoMove = { timerId: null, path: [], attackTarget: null };
@@ -307,7 +420,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (goalKey === startKey) return [];
 
     // The player can only tap within the visible grid, so keep BFS bounded for performance.
-    const LIMIT = Math.max(30, VIEW_RADIUS + 8);
+    const LIMIT = Math.max(30, getViewRadius() + 8);
 
     const prev = new Map();
     prev.set(startKey, null);
@@ -431,6 +544,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===================== MAP GEN ===================== */
 
+  function calculateRoomCountForFloor(f) {
+    // Floor 1 starts at 3 rooms. After that, the room count grows more slowly:
+    // Every 5 floors, it takes +1 more floor to earn +1 room (max: every 5 floors).
+    const baseRooms = 3;
+    const floorNum = Math.max(1, Number(f || 1));
+    if (floorNum <= 1) return baseRooms;
+
+    let roomCount = baseRooms;
+    let floorsSinceIncrease = 0;
+
+    for (let cur = 2; cur <= floorNum; cur++) {
+      const floorsPerRoom = Math.min(1 + Math.floor((cur - 1) / 5), 5);
+      floorsSinceIncrease += 1;
+      if (floorsSinceIncrease >= floorsPerRoom) {
+        roomCount += 1;
+        floorsSinceIncrease = 0;
+      }
+    }
+
+    return roomCount;
+  }
+
   function generateFloor() {
     stopAutoMove();
     map = {};
@@ -438,8 +573,9 @@ document.addEventListener("DOMContentLoaded", () => {
     enemies = [];
     hiddenArea = null;
     mouse = null;
+    explored = new Set();
 
-    const roomCount = floor + 2;
+    const roomCount = calculateRoomCountForFloor(floor);
 
     // --- Place rooms (non-overlapping), then connect via a graph ---
     // Start room is anchored so the camera/controls feel consistent.
@@ -518,11 +654,31 @@ document.addEventListener("DOMContentLoaded", () => {
     const s = rooms[0];
     player.x = Math.floor(s.x + s.w / 2);
     player.y = Math.floor(s.y + s.h / 2);
+    placeCampfire();
     spawnMouse();
 
     // Always close menu when generating a new floor (death/descend).
     setMenuOpen(false);
     draw();
+  }
+
+  function placeCampfire() {
+    // 50% chance to spawn a campfire in the safe (start) room.
+    if (Math.random() >= 0.5) return;
+
+    const s = rooms.find((r) => r.type === "start") || rooms[0];
+    if (!s) return;
+
+    for (let attempt = 0; attempt < 80; attempt++) {
+      const x = rand(s.x, s.x + s.w - 1);
+      const y = rand(s.y, s.y + s.h - 1);
+      const k = keyOf(x, y);
+      if ((map[k] || "#") !== ".") continue;
+      if (x === player.x && y === player.y) continue;
+      if (map[`${k}_loot`] || map[`${k}_trap`]) continue;
+      map[k] = "C";
+      return;
+    }
   }
 
   function connectRoomGraph() {
@@ -629,9 +785,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const count = rand(1, 2);
 
     for (let i = 0; i < count; i++) {
-      // Spawn mix: regular enemies (E) plus occasional rats (R).
-      const regular = ENEMY_TYPES[Math.min(Math.floor((floor - 1) / 10), ENEMY_TYPES.length - 1)];
-      const t = Math.random() < 0.25 ? RAT : regular;
+      // Floor 1-4: rats. Starting at floor 5: goblins replace rats.
+      const t = floor >= 5 ? GOBLIN : RAT;
 
       let placed = false;
       for (let attempt = 0; attempt < 60; attempt++) {
@@ -647,8 +802,8 @@ document.addEventListener("DOMContentLoaded", () => {
           dmg: t.dmg,
           color: t.color,
           sight: t.sight,
-          symbol: t.symbol || "E",
-          name: t.name || "Enemy",
+          symbol: t.symbol || "r",
+          name: t.name || "Rat",
         });
         placed = true;
         break;
@@ -662,8 +817,8 @@ document.addEventListener("DOMContentLoaded", () => {
           dmg: t.dmg,
           color: t.color,
           sight: t.sight,
-          symbol: t.symbol || "E",
-          name: t.name || "Enemy",
+          symbol: t.symbol || "r",
+          name: t.name || "Rat",
         });
       }
     }
@@ -918,7 +1073,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const prefix = trap.hidden ? "A hidden trap springs!" : "Trap!";
       addLog(`${prefix} ${trap.type} deals ${dmg} damage`, dmg ? "danger" : "block");
     } else {
-      const prefix = trap.hidden ? "Enemy triggers a hidden trap!" : "Enemy triggers a trap!";
+      const name = target?.name || "Enemy";
+      const prefix = trap.hidden ? `${name} triggers a hidden trap!` : `${name} triggers a trap!`;
       addLog(`${prefix} ${trap.type} deals ${dmg} damage`, dmg ? "danger" : "block");
     }
 
@@ -1025,10 +1181,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function moveEnemies() {
-    const canEnemyStep = (fromX, fromY, toX, toY) => isStepAllowed(fromX, fromY, toX, toY, canMove);
+    const canEnemyStep = (fromX, fromY, toX, toY) => isStepAllowed(fromX, fromY, toX, toY, canEnemyMove);
 
     for (let idx = enemies.length - 1; idx >= 0; idx--) {
       const e = enemies[idx];
+      const eName = e?.name || "Enemy";
       const dx = player.x - e.x;
       const dy = player.y - e.y;
       const dist = Math.max(Math.abs(dx), Math.abs(dy));
@@ -1037,10 +1194,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const rolled = rollBellInt(0, e.dmg);
         const dmg = Math.max(0, rolled - player.toughness);
         player.hp -= dmg;
-        addLog(`Enemy hits you for ${dmg}`, dmg ? "enemy" : "block");
+        addLog(`${eName} hits you for ${dmg}`, dmg ? "enemy" : "block");
         tickStatusEffects(e, "enemy");
         if (e.hp <= 0) {
-          addLog("Enemy dies", "death");
+          addLog(`${eName} dies`, "death");
           enemies.splice(idx, 1);
         }
         continue;
@@ -1105,7 +1262,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       tickStatusEffects(e, "enemy");
       if (e.hp <= 0) {
-        addLog("Enemy dies", "death");
+        addLog(`${eName} dies`, "death");
         enemies.splice(idx, 1);
       }
     }
@@ -1147,17 +1304,22 @@ document.addEventListener("DOMContentLoaded", () => {
     if (enemy) {
       const dealt = rollBellInt(0, player.dmg);
       enemy.hp -= dealt;
-      addLog(`You hit enemy for ${dealt}`, dealt ? "player" : "block");
+      addLog(`You hit ${(enemy?.name || "enemy").toLowerCase()} for ${dealt}`, dealt ? "player" : "block");
 
       if (enemy.hp <= 0) {
-        addLog("Enemy dies", "death");
+        addLog(`${enemy?.name || "Enemy"} dies`, "death");
         enemies = enemies.filter((e) => e !== enemy);
 
-        if (Math.random() < 0.05) {
+        // Rat meat drop (rats only).
+        if ((enemy?.name || "").toLowerCase().includes("rat") && Math.random() < 0.2 && !map[`${nx},${ny}_loot`]) {
+          map[`${nx},${ny}`] = RAT_MEAT.symbol;
+          map[`${nx},${ny}_loot`] = RAT_MEAT;
+          addLog("Rat dropped meat", "loot");
+        } else if (Math.random() < 0.05) {
           const p = POTIONS[rand(0, POTIONS.length - 1)];
           map[`${nx},${ny}`] = "P";
           map[`${nx},${ny}_loot`] = p;
-          addLog("Enemy dropped a potion", "loot");
+          addLog(`${enemy?.name || "Enemy"} dropped a potion`, "loot");
         }
       }
     } else {
@@ -1165,14 +1327,20 @@ document.addEventListener("DOMContentLoaded", () => {
       player.y = ny;
     }
 
+    // Hunger cost: move=0.1, attack=0.2
+    if (enemy) tickHunger(0.2);
+    else tickHunger(0.1);
+
     // Traps trigger when you step onto the tile (including hidden traps that look like floor).
     triggerTrapAtEntity(player.x, player.y, player, "player");
 
     // Only pick up loot from the tile you are actually standing on.
     const pKey = `${player.x},${player.y}`;
     if (map[`${pKey}_loot`]) {
-      player.inventory.push(map[`${pKey}_loot`]);
-      addLog("Picked up potion", "loot");
+      const loot = map[`${pKey}_loot`];
+      player.inventory.push(loot);
+      const lootName = loot?.name || "item";
+      addLog(`Picked up ${lootName}`, "loot");
       delete map[`${pKey}_loot`];
       map[pKey] = ".";
     }
@@ -1193,6 +1361,7 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("You died");
       floor = 1;
       player.hp = player.maxHp;
+      player.hunger = player.maxHunger;
       generateFloor();
       return;
     }
@@ -1222,7 +1391,40 @@ document.addEventListener("DOMContentLoaded", () => {
       addLog("You feel tougher", "loot");
     }
 
+    if (p.effect === "food") {
+      const hungerGain = Math.max(0, Number(p.hunger || 0));
+      const heal = Math.max(0, Number(p.heal || 0));
+      player.hunger = Math.min(player.maxHunger, player.hunger + hungerGain);
+      player.hp = Math.min(player.maxHp, player.hp + heal);
+      addLog(`You eat ${p.name}`, "loot");
+    }
+
     player.inventory.splice(i, 1);
+    draw();
+  }
+
+  function cookFood(i) {
+    if (!cookingAtCampfire) return;
+    const item = player.inventory[i];
+    if (!item || item.effect !== "food") return;
+    if (item.cooked) return;
+
+    let cooked;
+    const name = String(item.name || "").toLowerCase();
+    if (name.includes("rat meat")) cooked = COOKED_RAT_MEAT;
+    else {
+      const baseHunger = Math.max(0, Number(item.hunger || 0));
+      cooked = {
+        ...item,
+        name: `Cooked ${item.name || "Food"}`,
+        hunger: Math.max(baseHunger, Math.round(baseHunger * 2.5)),
+        color: item.color || "#ffd6a6",
+        cooked: true,
+      };
+    }
+
+    player.inventory[i] = cooked;
+    addLog(`Cooked ${item.name}`, "loot");
     draw();
   }
 
@@ -1260,9 +1462,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!mapContainerEl || !gameEl) return;
     if (menuOpen) return;
 
-    // The visible map is (2*VIEW_RADIUS + 1) characters wide/tall.
-    const cols = VIEW_RADIUS * 2 + 1;
-    const rows = VIEW_RADIUS * 2 + 1;
+    const viewRadius = getViewRadius();
+    // The visible map is (2*viewRadius + 1) characters wide/tall.
+    const cols = viewRadius * 2 + 1;
+    const rows = viewRadius * 2 + 1;
 
     const rect = mapContainerEl.getBoundingClientRect();
     // mapContainer has 8px padding on each side in CSS.
@@ -1318,9 +1521,31 @@ document.addEventListener("DOMContentLoaded", () => {
         Floor ${floor}
         ${statusLines.length ? "<br><br>" + statusLines.map(escapeHtml).join("<br>") : ""}
       </div>`;
+    } else if (activeTab === "cook") {
+      if (!cookingAtCampfire) {
+        content = `<div class="menu-empty">No campfire.</div>`;
+      } else {
+        const cookables = player.inventory
+          .map((it, idx) => ({ it, idx }))
+          .filter(({ it }) => it?.effect === "food" && !it?.cooked);
+
+        if (!cookables.length) {
+          content = `<div class="menu-empty">No raw food to cook</div>`;
+        } else {
+          const buttons = cookables
+            .map(
+              ({ it, idx }) =>
+                `<button type="button" data-cook-food="${idx}" class="menu-button" style="color:${it.color || "#ffd6a6"};">Cook ${escapeHtml(
+                  it.name,
+                )}</button>`,
+            )
+            .join("");
+          content = `<div class="menu-inventory">${buttons}</div>`;
+        }
+      }
     } else {
       content = `<div class="menu-log">${logHistory
-        .map((l) => `<div style="color:${l.color}">${escapeHtml(l.text)}</div>`)
+        .map((l) => `<div class="log-line" style="color:${l.color}">${escapeHtml(l.text)}</div>`)
         .join("")}</div>`;
     }
 
@@ -1329,6 +1554,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="menu-tabs">
           ${tabBtn("inventory", "Inventory")}
           ${tabBtn("status", "Status")}
+          ${cookingAtCampfire ? tabBtn("cook", "Cook") : ""}
           ${tabBtn("log", "Log")}
           ${actionBtn("close-menu", "Close")}
         </div>
@@ -1342,6 +1568,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Live log
     renderLiveLog();
+    updateHud();
 
     if (menuOpen) {
       activeTab = activeTab || "inventory";
@@ -1352,21 +1579,42 @@ document.addEventListener("DOMContentLoaded", () => {
     const enemyByPos = new Map();
     for (const e of enemies) enemyByPos.set(`${e.x},${e.y}`, e);
 
-    const tileSpan = (ch, color, extraStyle = "") => `<span style="color:${color};${extraStyle}">${ch}</span>`;
+    const escCh = (ch) => escapeHtml(String(ch ?? ""));
+    const tileSpan = (ch, color, extraStyle = "") => `<span style="color:${color};${extraStyle}">${escCh(ch)}</span>`;
+    const dimCss = "opacity:0.5;";
+    const popCss = "font-weight:700;";
     const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
-    const mouseCss =
-      "display:inline-block; transform: translate(0.28em, 0.16em) scale(0.65); transform-origin:center;";
+    const mouseCss = "";
     const hiddenFlashOn = Date.now() % HIDDEN_TRAP_FLASH_PERIOD_MS < HIDDEN_TRAP_FLASH_PULSE_MS;
     const mouseWallPulseOn = Date.now() % 240 < 120;
 
+    const viewRadius = getViewRadius();
+    markExploredAroundPlayer();
+
     // Map draw - center on player
     let out = "";
-    for (let y = -VIEW_RADIUS; y <= VIEW_RADIUS; y++) {
-      for (let x = -VIEW_RADIUS; x <= VIEW_RADIUS; x++) {
+    for (let y = -viewRadius; y <= viewRadius; y++) {
+      for (let x = -viewRadius; x <= viewRadius; x++) {
         const tx = player.x + x;
         const ty = player.y + y;
         const key = `${tx},${ty}`;
         const dist = Math.max(Math.abs(x), Math.abs(y)); // square distance
+
+        // Fog-of-war beyond current sight: show only explored terrain, hide unseen.
+        if (dist > BASE_VIEW_RADIUS) {
+          if (!explored.has(key)) {
+            out += " ";
+            continue;
+          }
+
+          // Hidden hallway/room stays hidden as walls until revealed.
+          const hiddenAsWall = hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key);
+          const ch = hiddenAsWall ? "#" : map[key] || "#";
+          const t = ch === "#" ? "#" : ".";
+          out += t === "#" ? tileSpan("#", "lime", dimCss) : tileSpan(".", "#555", dimCss);
+          continue;
+        }
+
         const terrainOnly = dist > FULL_SIGHT_RADIUS;
 
         // Terrain-only ring: show walls/floors only (no enemies, items, traps, mouse, trapdoor).
@@ -1377,26 +1625,25 @@ document.addEventListener("DOMContentLoaded", () => {
             const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
             const mouseWallPulseOn = Date.now() % 240 < 120;
             const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
-            out += tileSpan("#", color);
+            out += tileSpan("#", color, dimCss);
           } else {
             const ch = map[key] || "#";
             // Only terrain: walls and floors. Everything else renders as floor.
             const t = ch === "#" ? "#" : ".";
-            out += t === "#" ? tileSpan("#", "lime") : tileSpan(".", "#555");
+            out += t === "#" ? tileSpan("#", "lime", dimCss) : tileSpan(".", "#555", dimCss);
           }
           continue;
         }
 
         if (tx === player.x && ty === player.y) {
-          const extra = getBurning(player)?.turns ? burningOutlineCss : "";
+          const extra = `${popCss}${getBurning(player)?.turns ? burningOutlineCss : ""}`;
           out += tileSpan("@", "cyan", extra);
         } else if (enemyByPos.has(key)) {
           const e = enemyByPos.get(key);
-          const extra = getBurning(e)?.turns ? burningOutlineCss : "";
+          const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
           out += tileSpan(e.symbol || "E", e.color, extra);
         } else if (mouse && tx === mouse.x && ty === mouse.y) {
-          // Mouse hint: visually smaller and offset between tiles.
-          out += tileSpan("m", "#ddd", mouseCss);
+          out += tileSpan("m", "#eee", `${popCss}${mouseCss}`);
         } else if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
           // Hidden hallway/room are drawn as walls until revealed.
           const isFalseWall = hiddenArea.falseWalls?.has(key);
@@ -1405,7 +1652,7 @@ document.addEventListener("DOMContentLoaded", () => {
           out += tileSpan("#", color);
         } else if (map[`${key}_loot`]) {
           const p = map[`${key}_loot`];
-          out += tileSpan(p.symbol, p.color);
+          out += tileSpan(p.symbol, p.color, popCss);
         } else {
           const ch = map[key] || "#";
           const trap = map[`${key}_trap`];
@@ -1419,7 +1666,8 @@ document.addEventListener("DOMContentLoaded", () => {
           } else if (ch === ".") out += tileSpan(".", "#555"); // dark gray floors
           else if (ch === "~") out += tileSpan("~", "orange"); // fallback (should normally be typed via _trap)
           else if (ch === "#") out += tileSpan("#", "lime"); // green walls
-          else if (ch === "T") out += tileSpan("T", "lime"); // green trapdoor
+          else if (ch === "T") out += tileSpan("T", "#00ff3a", popCss); // trapdoor
+          else if (ch === "C") out += tileSpan("C", "orange", popCss); // campfire
           else out += tileSpan(ch, "white");
         }
       }
@@ -1461,10 +1709,34 @@ document.addEventListener("DOMContentLoaded", () => {
         // Don't treat button taps as movement (menu button lives outside, but be safe).
         if (e.target.closest("button")) return;
 
+        // Pinch zoom (touch): track pointers and, when 2 fingers are down, zoom instead of moving.
+        if (e.pointerType === "touch") {
+          touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          try {
+            mapContainerEl.setPointerCapture(e.pointerId);
+          } catch {
+            // ignore
+          }
+
+          if (touchPointers.size >= 2) {
+            pinch.active = true;
+            const pts = getTwoTouchPoints();
+            pinch.startDist = pts ? Math.max(1, touchDist(pts[0], pts[1])) : 1;
+            pinch.startZoom = zoomScale;
+            stopAutoMove(); // cancel any tap-to-move started by the first finger
+            if (investigateArmed) setInvestigateArmed(false);
+            e.preventDefault();
+            return;
+          }
+        }
+
+        if (pinch.active) return;
+
         e.preventDefault();
 
-        const cols = VIEW_RADIUS * 2 + 1;
-        const rows = VIEW_RADIUS * 2 + 1;
+        const viewRadius = getViewRadius();
+        const cols = viewRadius * 2 + 1;
+        const rows = viewRadius * 2 + 1;
         const gRect = gameEl?.getBoundingClientRect?.();
         if (!gRect) return;
 
@@ -1482,8 +1754,20 @@ document.addEventListener("DOMContentLoaded", () => {
         const row = Math.floor((e.clientY - gRect.top) / cellH);
         if (col < 0 || col >= cols || row < 0 || row >= rows) return;
 
-        const tx = player.x + (col - VIEW_RADIUS);
-        const ty = player.y + (row - VIEW_RADIUS);
+        const tx = player.x + (col - viewRadius);
+        const ty = player.y + (row - viewRadius);
+        const tappedKey = keyOf(tx, ty);
+        const tappedTile = map[tappedKey] || "#";
+
+        // Campfire: tap to open cooking menu when adjacent/on it.
+        if (tappedTile === "C") {
+          const d = chebDist(player.x, player.y, tx, ty);
+          if (d <= 1) {
+            openCampfireMenu();
+            return;
+          }
+          // If it's far, keep normal behavior: walk to it.
+        }
 
         if (investigateArmed) {
           e.preventDefault();
@@ -1494,6 +1778,41 @@ document.addEventListener("DOMContentLoaded", () => {
 
         startAutoMoveTo(tx, ty);
       });
+
+      mapContainerEl.addEventListener("pointermove", (e) => {
+        if (e.pointerType !== "touch") return;
+        if (!touchPointers.has(e.pointerId)) return;
+
+        touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (touchPointers.size !== 2) return;
+        if (!pinch.active) {
+          pinch.active = true;
+          const pts = getTwoTouchPoints();
+          pinch.startDist = pts ? Math.max(1, touchDist(pts[0], pts[1])) : 1;
+          pinch.startZoom = zoomScale;
+        }
+
+        const pts = getTwoTouchPoints();
+        if (!pts) return;
+
+        const dist = Math.max(1, touchDist(pts[0], pts[1]));
+        const minZoom = MIN_VIEW_RADIUS / BASE_VIEW_RADIUS;
+        const maxZoom = MAX_VIEW_RADIUS / BASE_VIEW_RADIUS;
+        // Invert pinch behavior: pinch OUT => zoom IN (show fewer tiles), pinch IN => zoom OUT.
+        zoomScale = clamp(pinch.startZoom * (pinch.startDist / dist), minZoom, maxZoom);
+        draw();
+        e.preventDefault();
+      });
+
+      const endTouch = (e) => {
+        if (e.pointerType !== "touch") return;
+        touchPointers.delete(e.pointerId);
+        if (touchPointers.size < 2) pinch.active = false;
+      };
+
+      mapContainerEl.addEventListener("pointerup", endTouch);
+      mapContainerEl.addEventListener("pointercancel", endTouch);
     }
 
     if (gameEl) {
@@ -1515,6 +1834,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (btn.dataset.usePotion != null) {
           usePotion(Number(btn.dataset.usePotion));
+          return;
+        }
+
+        if (btn.dataset.cookFood != null) {
+          cookFood(Number(btn.dataset.cookFood));
         }
       });
     }

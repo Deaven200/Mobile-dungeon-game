@@ -35,6 +35,7 @@ body {
   position: relative;
   padding: 8px;
   box-sizing: border-box;
+  touch-action: none; /* allow custom pinch zoom */
 }
 
 #game {
@@ -62,9 +63,10 @@ body {
 /* ===== LIVE LOG ===== */
 #liveLog {
   position: fixed;
-  left: 0;
-  right: 0;
+  left: 50%;
+  right: auto;
   top: env(safe-area-inset-top);
+  transform: translateX(-50%);
   z-index: 10;
   pointer-events: none;
   padding: 8px 12px;
@@ -78,17 +80,89 @@ body {
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.8);
   max-height: 30dvh;
   overflow: hidden;
+  /* Black backing so logs stay readable over the map */
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  margin: 0 auto;
+  background: rgba(0, 0, 0, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
+}
+
+#liveLog .log-line {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 2px 8px;
+  border-radius: 10px;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* ===== CONTROLS ===== */
+#hud {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 0 6px;
+  box-sizing: border-box;
+}
+
+.hud-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hud-bar-label {
+  width: 80px;
+  font-size: clamp(12px, 3.2vw, 14px);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.hud-bar-track {
+  flex: 1 1 auto;
+  height: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.hud-bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 10px;
+}
+
+#hpFill {
+  background: #ff2b2b;
+  box-shadow: 0 0 10px rgba(255, 43, 43, 0.55);
+}
+
+#hungerFill {
+  background: #ffd400;
+  box-shadow: 0 0 10px rgba(255, 212, 0, 0.5);
+}
+
 #controls {
   flex: 0 0 auto;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   gap: var(--gap);
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   box-sizing: border-box;
+}
+
+.controls-buttons {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--gap);
 }
 
 /* ===== MENU BUTTON ONLY ===== */
@@ -211,6 +285,18 @@ button.investigate-button.is-armed {
   box-sizing: border-box;
   min-height: 0;
   text-align: left;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+.menu-log .log-line {
+  display: block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.85);
+  margin: 2px 0;
+  box-sizing: border-box;
 }
 
 /* When menu is open, make it full-height and avoid overlaps */

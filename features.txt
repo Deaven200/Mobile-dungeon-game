@@ -1,6 +1,6 @@
 - Dungeon floors; procedural dungeon that regenerates each floor
 - Floor progression; stepping on the trapdoor (T) descends and increments the floor number
-- Room count scaling; number of rooms per floor is floor + 2
+- Room count scaling; floor 1 starts at 3 rooms, then room count increases more slowly: every 5 floors the “floors per +1 room” increases by 1 (caps at +1 room every 5 floors)
 - Start room; player spawns in an anchored start room near consistent coordinates
 - Boss room; the room farthest from the start is marked as the boss room
 - Trapdoor (T); placed at the center of the boss room and used to descend
@@ -8,7 +8,7 @@
 - ASCII map rendering; the dungeon is displayed as a character grid centered on the player
 - Sight; full-info sight radius is 6 tiles, plus an extra 3-tile ring that shows only walls/floors (no enemies/items/traps)
 - View size; the rendered view is 19x19 tiles (6+3 radius on each side)
-- Tile symbols; @=player, E=enemy, R=rat, #=wall, .=floor, P=potion, T=trapdoor, ~=visible trap, m=mouse hint
+- Tile symbols; @=player, r=rat, g=goblin, #=wall, .=floor, P=potion, T=trapdoor, ~=visible trap, m=mouse hint
 - Auto-fit map font size; the ASCII map font scales to fit the screen/container
 - Hidden trap hint; hidden traps look like floor but periodically flash orange
 
@@ -30,10 +30,8 @@
 - Death/reset; when HP reaches 0 you die (alert), floor resets to 1, HP is restored, and a new floor is generated (stats persist)
 
 - Enemies; 1–2 enemies spawn in each enemy room (enemies can move diagonally)
-- Basic enemy (E); scaled by floor tier (HP/damage/sight)
-- Rat (R); 3 HP, 0–1 bell-curve attack, dark gray
-- Enemy types (4 tiers); enemies have different HP/damage/sight values based on floor bracket
-- Enemy scaling by floor; tier increases every 10 floors (capped at the strongest tier)
+- Rat (r); floors 1–4 only; 3 HP, 0–1 bell-curve attack, dark gray
+- Goblin (g); floors 5+; 6 HP, 0–3 bell-curve attack, green
 - Enemy turns; enemies act after the player’s move
 - Enemy chasing; enemies move toward the player when within their sight range
 - Enemy wandering; enemies move randomly when the player is outside their sight range
