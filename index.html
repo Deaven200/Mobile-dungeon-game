@@ -17,6 +17,22 @@
   <!-- Live Log Overlay -->
   <div id="liveLog"></div>
 
+  <!-- HUD (below map, above controls) -->
+  <div id="hud" aria-label="HUD">
+    <div class="hud-bar" aria-label="Health">
+      <div class="hud-bar-label" id="hpLabel">HP</div>
+      <div class="hud-bar-track">
+        <div class="hud-bar-fill" id="hpFill"></div>
+      </div>
+    </div>
+    <div class="hud-bar" aria-label="Hunger">
+      <div class="hud-bar-label" id="hungerLabel">Hunger</div>
+      <div class="hud-bar-track">
+        <div class="hud-bar-fill" id="hungerFill"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Controls (Bottom) -->
   <div id="controls" aria-label="Controls">
     <button class="menu-button-only" id="menuBtn" type="button" data-action="menu" aria-label="Menu">●</button>

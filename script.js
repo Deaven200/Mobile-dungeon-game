@@ -38,6 +38,8 @@ document.addEventListener("DOMContentLoaded", () => {
     dmg: 2,
     toughness: 0,
     inventory: [],
+    hunger: 40,
+    maxHunger: 40,
   };
 
   let map = {};
@@ -59,6 +61,8 @@ document.addEventListener("DOMContentLoaded", () => {
     { name: "Strength Potion", effect: "damageBoost", value: 1, symbol: "P", color: "yellow" },
     { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "gray" },
   ];
+
+  const RAT_MEAT = { name: "Rat Meat", effect: "food", hunger: 14, heal: 1, symbol: "M", color: "#ff9aa7" };
 
   // Brighter colors for readability
   const RAT = { hp: 3, dmg: 1, color: "#bdbdbd", sight: 4, symbol: "r", name: "Rat" };
@@ -245,6 +249,35 @@ document.addEventListener("DOMContentLoaded", () => {
       liveLogs = liveLogs.filter((e) => e !== entry);
       renderLiveLog();
     }, LOG_LIFETIME);
+  }
+
+  function updateHud() {
+    const hpFill = document.getElementById("hpFill");
+    const hungerFill = document.getElementById("hungerFill");
+    const hpLabel = document.getElementById("hpLabel");
+    const hungerLabel = document.getElementById("hungerLabel");
+
+    if (hpFill) {
+      const pct = player.maxHp ? (player.hp / player.maxHp) * 100 : 0;
+      hpFill.style.width = `${clamp(pct, 0, 100)}%`;
+    }
+    if (hungerFill) {
+      const pct = player.maxHunger ? (player.hunger / player.maxHunger) * 100 : 0;
+      hungerFill.style.width = `${clamp(pct, 0, 100)}%`;
+    }
+
+    if (hpLabel) hpLabel.textContent = `HP ${player.hp}/${player.maxHp}`;
+    if (hungerLabel) hungerLabel.textContent = `Hunger ${player.hunger}/${player.maxHunger}`;
+  }
+
+  function tickHunger() {
+    // Hunger decreases with each player action.
+    player.hunger = Math.max(0, Number(player.hunger || 0) - 1);
+    if (player.hunger <= 0) {
+      // Starvation: small damage each turn while empty.
+      player.hp -= 1;
+      addLog("You are starving: -1 hp", "danger");
+    }
   }
 
   function setMenuOpen(open) {
@@ -1238,7 +1271,12 @@ document.addEventListener("DOMContentLoaded", () => {
         addLog(`${enemy?.name || "Enemy"} dies`, "death");
         enemies = enemies.filter((e) => e !== enemy);
 
-        if (Math.random() < 0.05) {
+        // Rat meat drop (rats only).
+        if ((enemy?.name || "").toLowerCase().includes("rat") && Math.random() < 0.18 && !map[`${nx},${ny}_loot`]) {
+          map[`${nx},${ny}`] = RAT_MEAT.symbol;
+          map[`${nx},${ny}_loot`] = RAT_MEAT;
+          addLog("Rat dropped meat", "loot");
+        } else if (Math.random() < 0.05) {
           const p = POTIONS[rand(0, POTIONS.length - 1)];
           map[`${nx},${ny}`] = "P";
           map[`${nx},${ny}_loot`] = p;
@@ -1250,14 +1288,18 @@ document.addEventListener("DOMContentLoaded", () => {
       player.y = ny;
     }
 
+    tickHunger();
+
     // Traps trigger when you step onto the tile (including hidden traps that look like floor).
     triggerTrapAtEntity(player.x, player.y, player, "player");
 
     // Only pick up loot from the tile you are actually standing on.
     const pKey = `${player.x},${player.y}`;
     if (map[`${pKey}_loot`]) {
-      player.inventory.push(map[`${pKey}_loot`]);
-      addLog("Picked up potion", "loot");
+      const loot = map[`${pKey}_loot`];
+      player.inventory.push(loot);
+      const lootName = loot?.name || "item";
+      addLog(`Picked up ${lootName}`, "loot");
       delete map[`${pKey}_loot`];
       map[pKey] = ".";
     }
@@ -1278,6 +1320,7 @@ document.addEventListener("DOMContentLoaded", () => {
       alert("You died");
       floor = 1;
       player.hp = player.maxHp;
+      player.hunger = player.maxHunger;
       generateFloor();
       return;
     }
@@ -1305,6 +1348,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if (p.effect === "toughnessBoost") {
       player.toughness += p.value;
       addLog("You feel tougher", "loot");
+    }
+
+    if (p.effect === "food") {
+      const hungerGain = Math.max(0, Number(p.hunger || 0));
+      const heal = Math.max(0, Number(p.heal || 0));
+      player.hunger = Math.min(player.maxHunger, player.hunger + hungerGain);
+      player.hp = Math.min(player.maxHp, player.hp + heal);
+      addLog(`You eat ${p.name}`, "loot");
     }
 
     player.inventory.splice(i, 1);
@@ -1428,6 +1479,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Live log
     renderLiveLog();
+    updateHud();
 
     if (menuOpen) {
       activeTab = activeTab || "inventory";
