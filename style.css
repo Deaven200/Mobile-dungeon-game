@@ -83,13 +83,14 @@ body {
   width: fit-content;
   max-width: calc(100% - 24px);
   margin: 0 auto;
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
 }
 
 #liveLog .log-line {
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(0, 0, 0, 0.35);
   padding: 2px 8px;
   border-radius: 10px;
   max-width: 100%;
