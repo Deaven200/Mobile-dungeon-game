@@ -328,6 +328,21 @@ document.addEventListener("DOMContentLoaded", () => {
     return true;
   }
 
+  function canEnemyMove(x, y) {
+    const k = keyOf(x, y);
+    const ch = map[k];
+    if (!isWalkableTile(ch)) return false;
+    if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k)) return false;
+    if (enemies.some((e) => e.x === x && e.y === y)) return false;
+
+    // Enemies avoid visible traps (~), but can still step on hidden traps (they look like floor).
+    if (ch === "~") return false;
+    const trap = map[`${k}_trap`];
+    if (trap && !trap.hidden) return false;
+
+    return true;
+  }
+
   function stopAutoMove() {
     if (autoMove?.timerId) window.clearInterval(autoMove.timerId);
     autoMove = { timerId: null, path: [], attackTarget: null };
@@ -1093,7 +1108,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function moveEnemies() {
-    const canEnemyStep = (fromX, fromY, toX, toY) => isStepAllowed(fromX, fromY, toX, toY, canMove);
+    const canEnemyStep = (fromX, fromY, toX, toY) => isStepAllowed(fromX, fromY, toX, toY, canEnemyMove);
 
     for (let idx = enemies.length - 1; idx >= 0; idx--) {
       const e = enemies[idx];
@@ -1422,7 +1437,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const enemyByPos = new Map();
     for (const e of enemies) enemyByPos.set(`${e.x},${e.y}`, e);
 
-    const tileSpan = (ch, color, extraStyle = "") => `<span style="color:${color};${extraStyle}">${ch}</span>`;
+    const escCh = (ch) => escapeHtml(String(ch ?? ""));
+    const tileSpan = (ch, color, extraStyle = "") => `<span style="color:${color};${extraStyle}">${escCh(ch)}</span>`;
+    const outlinedSpan = (ch, color, extraStyle = "") =>
+      `<span class="tile-outlined" data-ch="${escCh(ch)}" style="color:${color};${extraStyle}">${escCh(ch)}</span>`;
     const dimCss = "opacity:0.5;";
     const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
     const mouseCss =
@@ -1479,14 +1497,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (tx === player.x && ty === player.y) {
           const extra = getBurning(player)?.turns ? burningOutlineCss : "";
-          out += tileSpan("@", "cyan", extra);
+          out += outlinedSpan("@", "cyan", extra);
         } else if (enemyByPos.has(key)) {
           const e = enemyByPos.get(key);
           const extra = getBurning(e)?.turns ? burningOutlineCss : "";
-          out += tileSpan(e.symbol || "E", e.color, extra);
+          out += outlinedSpan(e.symbol || "E", e.color, extra);
         } else if (mouse && tx === mouse.x && ty === mouse.y) {
           // Mouse hint: visually smaller and offset between tiles.
-          out += tileSpan("m", "#ddd", mouseCss);
+          out += outlinedSpan("m", "#ddd", mouseCss);
         } else if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
           // Hidden hallway/room are drawn as walls until revealed.
           const isFalseWall = hiddenArea.falseWalls?.has(key);
@@ -1495,7 +1513,7 @@ document.addEventListener("DOMContentLoaded", () => {
           out += tileSpan("#", color);
         } else if (map[`${key}_loot`]) {
           const p = map[`${key}_loot`];
-          out += tileSpan(p.symbol, p.color);
+          out += outlinedSpan(p.symbol, p.color);
         } else {
           const ch = map[key] || "#";
           const trap = map[`${key}_trap`];
@@ -1509,7 +1527,7 @@ document.addEventListener("DOMContentLoaded", () => {
           } else if (ch === ".") out += tileSpan(".", "#555"); // dark gray floors
           else if (ch === "~") out += tileSpan("~", "orange"); // fallback (should normally be typed via _trap)
           else if (ch === "#") out += tileSpan("#", "lime"); // green walls
-          else if (ch === "T") out += tileSpan("T", "lime"); // green trapdoor
+          else if (ch === "T") out += outlinedSpan("T", "lime"); // green trapdoor
           else out += tileSpan(ch, "white");
         }
       }

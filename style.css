@@ -60,6 +60,25 @@ body {
   font-feature-settings: "liga" 0, "calt" 0;
 }
 
+/* White underlay "outline" for entities/items */
+#game .tile-outlined {
+  position: relative;
+  display: inline-block;
+  z-index: 0;
+}
+
+#game .tile-outlined::before {
+  content: attr(data-ch);
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: rgba(255, 255, 255, 0.95);
+  transform: scale(1.25);
+  transform-origin: center;
+  z-index: -1;
+  pointer-events: none;
+}
+
 /* ===== LIVE LOG ===== */
 #liveLog {
   position: fixed;
