@@ -7,6 +7,16 @@ document.addEventListener("DOMContentLoaded", () => {
   let gamePaused = false;
   let investigateArmed = false;
   let cookingAtCampfire = false;
+  let atShop = false;
+  let inMainMenu = true;
+  let gameStarted = false;
+  let settings = {
+    showDamageNumbers: true,
+    showEnemyHealth: true,
+    soundEnabled: false,
+    autoSave: true,
+  };
+  let floorStats = { enemiesKilled: 0, itemsFound: 0, trapsTriggered: 0, damageTaken: 0, damageDealt: 0 };
 
   // Sight model:
   // - FULL_SIGHT_RADIUS: you can see everything (enemies, items, traps, etc.)
@@ -19,6 +29,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const LOG_LIFETIME = 3000;
   const HIDDEN_TRAP_FLASH_PERIOD_MS = 3000;
   const HIDDEN_TRAP_FLASH_PULSE_MS = 350;
+  
+  // Game balance constants
+  const HUNGER_COST_MOVE = 0.015; // Increased from 0.01
+  const HUNGER_COST_ATTACK = 0.05;
+  const HUNGER_COST_REGEN = 0.03; // Increased from 0.02
+  const HP_REGEN_AMOUNT = 0.08; // Reduced from 0.1
+  const MAX_DAMAGE_NUMBERS = 20;
 
   let logHistory = [];
   let liveLogs = [];
@@ -41,6 +58,10 @@ document.addEventListener("DOMContentLoaded", () => {
     inventory: [],
     hunger: 10,
     maxHunger: 10,
+    kills: 0,
+    combo: 0,
+    score: 0,
+    statusEffects: {},
   };
 
   let map = {};
@@ -49,6 +70,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let hiddenArea = null; // { revealed, tiles:Set<string>, falseWalls:Set<string>, mouseFlashUntil:number }
   let mouse = null; // { x, y }
   let autoMove = { timerId: null, path: [], attackTarget: null };
+  let damageNumbers = []; // { x, y, value, type, time }
 
   const gameEl = document.getElementById("game");
   const controlsEl = document.getElementById("controls");
@@ -61,6 +83,9 @@ document.addEventListener("DOMContentLoaded", () => {
     { name: "Health Potion", effect: "fullHeal", value: 1, symbol: "P", color: "#ff3b3b" },
     { name: "Strength Potion", effect: "damageBoost", value: 1, symbol: "P", color: "#ffe600" },
     { name: "Toughness Potion", effect: "toughnessBoost", value: 1, symbol: "P", color: "#cfcfcf" },
+    { name: "Speed Potion", effect: "speed", value: 3, symbol: "P", color: "#00ffff", turns: 10 },
+    { name: "Invisibility Potion", effect: "invisibility", value: 1, symbol: "P", color: "#8888ff", turns: 5 },
+    { name: "Explosive Potion", effect: "explosive", value: 3, symbol: "P", color: "#ff8800" },
   ];
 
   const RAT_MEAT = { name: "Rat Meat", effect: "food", hunger: 2, heal: 0, symbol: "M", color: "#ff7aa0", cooked: false };
@@ -73,10 +98,15 @@ document.addEventListener("DOMContentLoaded", () => {
     color: "#ffb65c",
     cooked: true,
   };
+  const MUSHROOM = { name: "Mushroom", effect: "food", hunger: 1, heal: 1, symbol: "m", color: "#cc88cc", cooked: false };
+  const BERRY = { name: "Berry", effect: "food", hunger: 1, heal: 0, symbol: "b", color: "#ff4477", cooked: false };
 
   // Brighter colors for readability
   const RAT = { hp: 3, dmg: 1, color: "#bdbdbd", sight: 4, symbol: "r", name: "Rat" };
   const GOBLIN = { hp: 6, dmg: 3, color: "#00ff3a", sight: 5, symbol: "g", name: "Goblin" };
+  const BAT = { hp: 2, dmg: 1, color: "#a055a0", sight: 5, symbol: "b", name: "Bat", speed: 2 };
+  const SKELETON = { hp: 8, dmg: 2, color: "#ffffff", sight: 4, symbol: "s", name: "Skeleton" };
+  const ORC = { hp: 12, dmg: 4, color: "#8b4513", sight: 3, symbol: "o", name: "Orc", toughness: 1 };
 
   const ENEMY_TYPES = [
     { hp: 1, dmg: 1, color: "red", sight: 3 },
@@ -186,8 +216,18 @@ document.addEventListener("DOMContentLoaded", () => {
     return ch === "." || ch === "~" || ch === "T" || ch === "C";
   }
 
+  function getStatus(target, kind) {
+    return target?.statusEffects?.[kind] || null;
+  }
+
+  function addStatus(target, kind, turns, value = 0) {
+    if (!target) return;
+    if (!target.statusEffects) target.statusEffects = {};
+    target.statusEffects[kind] = { turns, value };
+  }
+
   function getBurning(target) {
-    return target?.statusEffects?.burning || null;
+    return getStatus(target, "burning");
   }
 
   function addBurning(target, turns = 3, dmgPerTurn = 1) {
@@ -203,20 +243,108 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function addPoisoned(target, turns = 3, dmgPerTurn = 1) {
+    if (!target) return;
+    if (!target.statusEffects) target.statusEffects = {};
+    const cur = target.statusEffects.poisoned;
+    if (!cur) target.statusEffects.poisoned = { turns, dmgPerTurn };
+    else {
+      target.statusEffects.poisoned = {
+        turns: Math.max(Number(cur.turns || 0), Number(turns || 0)),
+        dmgPerTurn: Math.max(Number(cur.dmgPerTurn || 0), Number(dmgPerTurn || 0)),
+      };
+    }
+  }
+
   function tickStatusEffects(target, targetKind = "player") {
     if (!target || typeof target.hp !== "number") return;
-    const burning = getBurning(target);
-    if (!burning?.turns) return;
+    const status = target.statusEffects || {};
 
-    const dmg = Math.max(0, Number(burning.dmgPerTurn || 0));
-    if (dmg) target.hp -= dmg;
+    // Burning
+    const burning = status.burning;
+    if (burning?.turns) {
+      const dmg = Math.max(0, Number(burning.dmgPerTurn || 0));
+      if (dmg > 0) {
+        target.hp -= dmg;
+        if (targetKind === "player") {
+          addLog(`You are burning: -${dmg} hp`, "danger");
+          showDamageNumber(target.x || player.x, target.y || player.y, dmg, "enemy");
+        }
+      }
+      burning.turns -= 1;
+      if (burning.turns <= 0) delete target.statusEffects.burning;
+    }
 
-    burning.turns -= 1;
-    if (burning.turns <= 0) delete target.statusEffects.burning;
+    // Poison
+    const poisoned = status.poisoned;
+    if (poisoned?.turns) {
+      const dmg = Math.max(0, Number(poisoned.dmgPerTurn || 0));
+      if (dmg > 0) {
+        target.hp -= dmg;
+        if (targetKind === "player") {
+          addLog(`Poisoned: -${dmg} hp`, "danger");
+          showDamageNumber(target.x || player.x, target.y || player.y, dmg, "enemy");
+        }
+      }
+      poisoned.turns -= 1;
+      if (poisoned.turns <= 0) delete target.statusEffects.poisoned;
+    }
 
-    // Only spam logs for the player; enemies already have visible feedback and death logs.
-    if (targetKind === "player") {
-      addLog(`You are burning: -${dmg} hp`, dmg ? "danger" : "block");
+    // Regeneration
+    const regeneration = status.regeneration;
+    if (regeneration?.turns) {
+      const heal = Math.max(0, Number(regeneration.healPerTurn || 0));
+      if (heal && target.maxHp) {
+        target.hp = Math.min(target.maxHp, target.hp + heal);
+      }
+      regeneration.turns -= 1;
+      if (regeneration.turns <= 0) delete target.statusEffects.regeneration;
+      if (targetKind === "player" && heal) {
+        addLog(`Regenerating: +${heal} hp`, "loot");
+      }
+    }
+
+    // Invisibility/Speed - just decrement turns
+    if (status.invisibility?.turns) {
+      status.invisibility.turns -= 1;
+      if (status.invisibility.turns <= 0) {
+        delete target.statusEffects.invisibility;
+        if (targetKind === "player") addLog("Invisibility faded", "info");
+      }
+    }
+    if (status.speed?.turns) {
+      status.speed.turns -= 1;
+      if (status.speed.turns <= 0) {
+        delete target.statusEffects.speed;
+        if (targetKind === "player") addLog("Speed boost faded", "info");
+      }
+    }
+    if (status.slow?.turns) {
+      status.slow.turns -= 1;
+      if (status.slow.turns <= 0) {
+        delete target.statusEffects.slow;
+        if (targetKind === "player") addLog("Slowness faded", "info");
+      }
+    }
+    
+    // Regeneration (for potions)
+    if (status.regeneration?.turns) {
+      const regen = status.regeneration;
+      regen.turns -= 1;
+      if (regen.turns <= 0) {
+        delete target.statusEffects.regeneration;
+        if (targetKind === "player") addLog("Regeneration faded", "info");
+      }
+    }
+    
+    // Regeneration (for potions)
+    if (status.regeneration?.turns) {
+      const regen = status.regeneration;
+      regen.turns -= 1;
+      if (regen.turns <= 0) {
+        delete target.statusEffects.regeneration;
+        if (targetKind === "player") addLog("Regeneration faded", "info");
+      }
     }
   }
 
@@ -234,6 +362,65 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!logDiv) return;
     logDiv.innerHTML = liveLogs
       .map((l) => `<div class="log-line" style="color:${l.color}">${escapeHtml(l.text)}</div>`)
+      .join("");
+  }
+
+  function showDamageNumber(x, y, value, type = "player") {
+    if (!settings.showDamageNumbers) return;
+    damageNumbers.push({
+      x,
+      y,
+      value: Math.floor(value),
+      type,
+      time: Date.now(),
+    });
+  }
+  
+  // Expose globally for use in other functions
+  window.showDamageNumber = showDamageNumber;
+
+  function updateDamageNumbers() {
+    if (damageNumbers.length === 0) return; // Skip if no damage numbers
+    
+    const now = Date.now();
+    damageNumbers = damageNumbers.filter((dn) => now - dn.time < 1000);
+    
+    // Limit array size
+    if (damageNumbers.length > MAX_DAMAGE_NUMBERS) {
+      damageNumbers = damageNumbers.slice(-MAX_DAMAGE_NUMBERS);
+    }
+    
+    // Render damage numbers
+    const damageEl = document.getElementById("damageNumbers");
+    if (!damageEl || !gameEl) return;
+    
+    const gRect = gameEl.getBoundingClientRect();
+    const mRect = mapContainerEl.getBoundingClientRect();
+    const fontPx = Number.parseFloat(window.getComputedStyle(gameEl).fontSize || "16");
+    const { unitW, unitH } = getMonoCellMetricsPx(120);
+    const cellW = unitW * fontPx;
+    const cellH = unitH * fontPx;
+    
+    if (!cellW || !cellH) return;
+    
+    const viewRadius = getViewRadius();
+    damageEl.innerHTML = damageNumbers
+      .map((dn) => {
+        const dx = dn.x - player.x;
+        const dy = dn.y - player.y;
+        if (Math.abs(dx) > viewRadius || Math.abs(dy) > viewRadius) return "";
+        
+        const screenX = gRect.left + (dx + viewRadius) * cellW + cellW / 2 - mRect.left;
+        const screenY = gRect.top + (dy + viewRadius) * cellH + cellH / 2 - mRect.top;
+        
+        const color = dn.type === "player" ? "#00ff00" : dn.type === "crit" ? "#ffff00" : "#ff0000";
+        const age = now - dn.time;
+        const offsetY = -(age / 1000) * 40;
+        const opacity = 1 - age / 1000;
+        
+        return `<div class="damage-number" style="left:${screenX}px;top:${screenY + offsetY}px;color:${color};opacity:${opacity};">${dn.value}</div>`;
+      })
+      .filter(Boolean)
       .join("");
   }
 
@@ -264,8 +451,11 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateHud() {
     const hpFill = document.getElementById("hpFill");
     const hungerFill = document.getElementById("hungerFill");
-    const hpLabel = document.getElementById("hpLabel");
-    const hungerLabel = document.getElementById("hungerLabel");
+    const hpCurrent = document.getElementById("hpCurrent");
+    const hpMax = document.getElementById("hpMax");
+    const hungerCurrent = document.getElementById("hungerCurrent");
+    const hungerMax = document.getElementById("hungerMax");
+    const floorLabel = document.getElementById("floorLabel");
 
     if (hpFill) {
       const pct = player.maxHp ? (player.hp / player.maxHp) * 100 : 0;
@@ -276,27 +466,83 @@ document.addEventListener("DOMContentLoaded", () => {
       hungerFill.style.width = `${clamp(pct, 0, 100)}%`;
     }
 
-    if (hpLabel) hpLabel.textContent = `HP ${player.hp}/${player.maxHp}`;
-    if (hungerLabel) hungerLabel.textContent = `Hunger ${Number(player.hunger || 0).toFixed(1)}/${player.maxHunger}`;
+    if (hpCurrent) hpCurrent.textContent = Number(player.hp || 0).toFixed(1);
+    if (hpMax) hpMax.textContent = Number(player.maxHp || 0).toFixed(1);
+    if (hungerCurrent) hungerCurrent.textContent = Number(player.hunger || 0).toFixed(1);
+    if (hungerMax) hungerMax.textContent = Number(player.maxHunger || 0).toFixed(1);
+    
+    // Build status line with combo and status effects
+    let statusParts = [`Floor ${floor}`, `Score: ${player.score || 0}`];
+    if (player.combo > 0) {
+      statusParts.push(`${player.combo}x Combo`);
+    }
+    
+    // Add status effect indicators
+    const statusEffects = player.statusEffects || {};
+    const statusList = [];
+    if (statusEffects.burning?.turns) statusList.push(`Burn(${statusEffects.burning.turns})`);
+    if (statusEffects.poisoned?.turns) statusList.push(`Pois(${statusEffects.poisoned.turns})`);
+    if (statusEffects.speed?.turns) statusList.push(`Spd(${statusEffects.speed.turns})`);
+    if (statusEffects.invisibility?.turns) statusList.push(`Invis(${statusEffects.invisibility.turns})`);
+    if (statusEffects.slow?.turns) statusList.push(`Slow(${statusEffects.slow.turns})`);
+    if (statusEffects.regeneration?.turns) statusList.push(`Regen(${statusEffects.regeneration.turns})`);
+    
+    if (statusList.length > 0) {
+      statusParts.push(statusList.join(" "));
+    }
+    
+    if (floorLabel) floorLabel.textContent = statusParts.join(" | ");
   }
 
   function tickHunger(cost = 0) {
     // Hunger decreases with each player action.
     const c = Math.max(0, Number(cost || 0));
+    const oldHunger = player.hunger;
     player.hunger = Math.max(0, Number(player.hunger || 0) - c);
+    
+    // Low hunger warning
+    if (oldHunger >= 2 && player.hunger < 2 && player.hunger > 0) {
+      addLog("Low hunger! Find food soon.", "danger");
+    }
+    
     if (player.hunger <= 0) {
       // Starvation: small damage each turn while empty.
-      player.hp -= 1;
-      addLog("You are starving: -1 hp", "danger");
+      player.hp -= 0.01;
+      addLog("You are starving: -0.01 hp", "danger");
+    }
+  }
+
+  function tickHungerRegeneration() {
+    // If out of combat and missing health, regenerate using hunger
+    if (player.hp >= player.maxHp) return; // Full health, no need to regen
+    if (player.hunger <= 0) return; // No hunger to use
+    
+    // Check if out of combat (no enemies adjacent)
+    const isOutOfCombat = !enemies.some((e) => {
+      const dist = Math.max(Math.abs(e.x - player.x), Math.abs(e.y - player.y));
+      return dist <= 1; // No enemies adjacent
+    });
+    
+    if (isOutOfCombat) {
+      // Only regenerate if actually missing HP
+      const missingHp = player.maxHp - player.hp;
+      if (missingHp > 0 && player.hunger >= HUNGER_COST_REGEN) {
+        player.hp = Math.min(player.maxHp, player.hp + HP_REGEN_AMOUNT);
+        player.hunger = Math.max(0, player.hunger - HUNGER_COST_REGEN);
+      }
     }
   }
 
   function setMenuOpen(open) {
+    if (inMainMenu) return; // Don't allow in-game menu when in main menu
     menuOpen = open;
     gamePaused = open;
     if (open) stopAutoMove();
     if (open) setInvestigateArmed(false);
-    if (!open) cookingAtCampfire = false;
+    if (!open) {
+      cookingAtCampfire = false;
+      atShop = false;
+    }
 
     document.body.classList.toggle("menu-open", open);
     if (gameEl) gameEl.classList.toggle("is-menu", open);
@@ -307,6 +553,427 @@ document.addEventListener("DOMContentLoaded", () => {
     activeTab = "cook";
     setMenuOpen(true);
     draw();
+  }
+
+  function openShopMenu() {
+    activeTab = "shop";
+    setMenuOpen(true);
+    draw();
+  }
+
+  function showFloorTransition() {
+    const transitionEl = document.getElementById("floorTransition");
+    if (!transitionEl) {
+      // Fallback if element doesn't exist
+      floor++;
+      generateFloor();
+      return;
+    }
+    
+    transitionEl.style.display = "flex";
+    transitionEl.innerHTML = `
+      <h2>Floor ${floor} Complete!</h2>
+      <div class="transition-stats">
+        Enemies Killed: ${floorStats.enemiesKilled || 0}<br>
+        Items Found: ${floorStats.itemsFound || 0}<br>
+        Traps Triggered: ${floorStats.trapsTriggered || 0}<br>
+        ${floorStats.damageDealt ? `Damage Dealt: ${floorStats.damageDealt}<br>` : ""}
+        ${floorStats.damageTaken ? `Damage Taken: ${floorStats.damageTaken}<br>` : ""}
+      </div>
+      <button type="button" id="continueBtn">Continue to Floor ${floor + 1}</button>
+    `;
+    
+    const btn = document.getElementById("continueBtn");
+    if (btn) {
+      btn.onclick = () => {
+        transitionEl.style.display = "none";
+        floor++;
+        generateFloor();
+      };
+    }
+    
+    // Auto-save before continuing
+    if (settings.autoSave) {
+      saveGame();
+    }
+    
+    // Auto-continue after 3 seconds
+    setTimeout(() => {
+      if (transitionEl && transitionEl.style.display !== "none") {
+        transitionEl.style.display = "none";
+        floor++;
+        generateFloor();
+      }
+    }, 3000);
+  }
+
+  function getAllSaves() {
+    try {
+      const savesStr = localStorage.getItem("dungeonGameSaves");
+      if (!savesStr) return [];
+      return JSON.parse(savesStr);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveSavesList(saves) {
+    try {
+      localStorage.setItem("dungeonGameSaves", JSON.stringify(saves));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function saveGame(saveName = null) {
+    try {
+      const saveData = {
+        id: `save_${Date.now()}`,
+        name: saveName || `Save ${new Date().toLocaleString()}`,
+        player,
+        floor,
+        score: player.score,
+        timestamp: Date.now(),
+      };
+      
+      // Get all saves
+      const saves = getAllSaves();
+      
+      // Remove old save if it exists (by name or add new)
+      const existingIndex = saves.findIndex(s => s.name === saveData.name);
+      if (existingIndex >= 0) {
+        saves[existingIndex] = saveData;
+      } else {
+        saves.push(saveData);
+      }
+      
+      // Keep only last 10 saves
+      saves.sort((a, b) => b.timestamp - a.timestamp);
+      const limitedSaves = saves.slice(0, 10);
+      
+      saveSavesList(limitedSaves);
+      addLog(`Game saved: ${saveData.name}`, "info");
+      return true;
+    } catch (e) {
+      addLog("Save failed", "danger");
+      return false;
+    }
+  }
+
+  function loadGame(saveId = null) {
+    try {
+      const saves = getAllSaves();
+      
+      if (saves.length === 0) {
+        addLog("No saved games found", "info");
+        return false;
+      }
+      
+      // If no ID provided, load the most recent
+      let saveData;
+      if (saveId) {
+        saveData = saves.find(s => s.id === saveId);
+        if (!saveData) {
+          addLog("Save not found", "danger");
+          return false;
+        }
+      } else {
+        // Load most recent
+        saveData = saves.sort((a, b) => b.timestamp - a.timestamp)[0];
+      }
+      
+      player = { ...player, ...saveData.player };
+      floor = saveData.floor || floor;
+      
+      startGame();
+      addLog(`Game loaded: ${saveData.name}`, "loot");
+      return true;
+    } catch (e) {
+      addLog("Load failed", "danger");
+      return false;
+    }
+  }
+
+  function deleteSave(saveId) {
+    try {
+      const saves = getAllSaves();
+      const filtered = saves.filter(s => s.id !== saveId);
+      saveSavesList(filtered);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function showLoadMenu() {
+    const mainMenuEl = document.getElementById("mainMenu");
+    if (!mainMenuEl) return;
+    
+    const saves = getAllSaves();
+    
+    if (saves.length === 0) {
+      mainMenuEl.innerHTML = `
+        <div class="menu-screen">
+          <h1 class="menu-title">Load Game</h1>
+          <div class="menu-buttons">
+            <div style="text-align: center; padding: 20px; color: var(--accent);">No saved games found</div>
+            <button type="button" class="menu-screen-button" id="backToMainMenuBtn">Back to Menu</button>
+          </div>
+        </div>
+      `;
+      
+      const backBtn = document.getElementById("backToMainMenuBtn");
+      if (backBtn) {
+        backBtn.addEventListener("click", () => {
+          initMainMenu();
+        });
+      }
+      return;
+    }
+    
+    // Sort by timestamp (newest first)
+    saves.sort((a, b) => b.timestamp - a.timestamp);
+    
+    const saveButtons = saves.map((save, index) => {
+      const date = new Date(save.timestamp);
+      const dateStr = date.toLocaleString();
+      return `
+        <div style="display: flex; flex-direction: column; gap: 5px; margin: 5px 0;">
+          <button type="button" class="menu-screen-button" data-load-save="${save.id}" style="text-align: left; padding: 12px 16px;">
+            <div style="font-weight: bold;">${escapeHtml(save.name)}</div>
+            <div style="font-size: 0.85em; opacity: 0.8;">Floor ${save.floor} | Score: ${save.score || 0}</div>
+            <div style="font-size: 0.75em; opacity: 0.6;">${dateStr}</div>
+          </button>
+          <button type="button" class="menu-screen-button" data-delete-save="${save.id}" style="padding: 6px 12px; font-size: 0.9em; border-color: #ff4444; color: #ff4444; background: rgba(255, 68, 68, 0.1);">
+            Delete
+          </button>
+        </div>
+      `;
+    }).join("");
+    
+    mainMenuEl.innerHTML = `
+      <div class="menu-screen">
+        <h1 class="menu-title">Load Game</h1>
+        <div class="menu-buttons" style="max-height: 60vh; overflow-y: auto;">
+          ${saveButtons}
+          <button type="button" class="menu-screen-button" id="backToMainMenuBtn" style="margin-top: 15px;">Back to Menu</button>
+        </div>
+      </div>
+    `;
+    
+    // Bind load buttons
+    saves.forEach(save => {
+      const loadBtn = document.querySelector(`[data-load-save="${save.id}"]`);
+      if (loadBtn) {
+        loadBtn.addEventListener("click", () => {
+          loadGame(save.id);
+        });
+      }
+      
+      const deleteBtn = document.querySelector(`[data-delete-save="${save.id}"]`);
+      if (deleteBtn) {
+        deleteBtn.addEventListener("click", () => {
+          if (confirm(`Delete save "${save.name}"?`)) {
+            deleteSave(save.id);
+            showLoadMenu(); // Refresh the menu
+          }
+        });
+      }
+    });
+    
+    const backBtn = document.getElementById("backToMainMenuBtn");
+    if (backBtn) {
+      backBtn.addEventListener("click", () => {
+        initMainMenu();
+      });
+    }
+  }
+
+  function startGame() {
+    // Reset player stats for new game
+    if (!gameStarted) {
+      player = {
+        x: 0,
+        y: 0,
+        hp: 10,
+        maxHp: 10,
+        dmg: 2,
+        toughness: 0,
+        inventory: [],
+        hunger: 10,
+        maxHunger: 10,
+        kills: 0,
+        combo: 0,
+        score: 0,
+        statusEffects: {},
+      };
+      floor = 1;
+      gameStarted = true;
+    }
+    
+    inMainMenu = false;
+    const mainMenuEl = document.getElementById("mainMenu");
+    const mapContainerEl = document.getElementById("mapContainer");
+    const controlsEl = document.getElementById("controls");
+    
+    if (mainMenuEl) mainMenuEl.style.display = "none";
+    if (mapContainerEl) mapContainerEl.style.display = "flex";
+    if (controlsEl) controlsEl.style.display = "flex";
+    
+    generateFloor();
+    setMenuOpen(false);
+  }
+
+  function returnToMainMenu() {
+    inMainMenu = true;
+    gameStarted = false;
+    gamePaused = true;
+    setMenuOpen(false);
+    
+    const mainMenuEl = document.getElementById("mainMenu");
+    const mapContainerEl = document.getElementById("mapContainer");
+    const controlsEl = document.getElementById("controls");
+    const quitBtn = document.getElementById("quitGameBtn");
+    
+    if (mainMenuEl) mainMenuEl.style.display = "flex";
+    if (mapContainerEl) mapContainerEl.style.display = "none";
+    if (controlsEl) controlsEl.style.display = "none";
+    if (quitBtn) quitBtn.style.display = "block";
+    
+    // Reset game state
+    stopAutoMove();
+    damageNumbers = [];
+    logHistory = [];
+    liveLogs = [];
+  }
+
+  function quitToMenu() {
+    if (confirm("Quit to main menu? Progress will be saved.")) {
+      if (settings.autoSave) {
+        saveGame();
+      }
+      returnToMainMenu();
+    }
+  }
+
+  function showMainMenuSettings() {
+    const mainMenuEl = document.getElementById("mainMenu");
+    if (!mainMenuEl) return;
+    
+    const highScore = localStorage.getItem("dungeonHighScore") || 0;
+    const saves = getAllSaves();
+    const hasSave = saves.length > 0;
+    
+    mainMenuEl.innerHTML = `
+      <div class="menu-screen">
+        <h1 class="menu-title">Settings</h1>
+        <div class="menu-buttons" style="align-items: stretch;">
+          <div style="margin-bottom: 15px; text-align: center; padding: 10px; background: rgba(0, 0, 0, 0.5); border-radius: 8px;">
+            <div style="margin: 10px 0;">High Score: ${highScore}</div>
+            ${hasSave ? '<div style="margin: 10px 0; color: #0ff;">Saved game available</div>' : ''}
+          </div>
+          <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+            <input type="checkbox" ${settings.showDamageNumbers ? "checked" : ""} id="setting-damage" style="width: 20px; height: 20px;">
+            Show Damage Numbers
+          </label>
+          <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+            <input type="checkbox" ${settings.showEnemyHealth ? "checked" : ""} id="setting-health" style="width: 20px; height: 20px;">
+            Show Enemy Health
+          </label>
+          <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+            <input type="checkbox" ${settings.autoSave ? "checked" : ""} id="setting-autosave" style="width: 20px; height: 20px;">
+            Auto-Save
+          </label>
+          <button type="button" class="menu-screen-button" id="backToMenuBtn" style="margin-top: 15px;">Back to Menu</button>
+        </div>
+      </div>
+    `;
+    
+    const backBtn = document.getElementById("backToMenuBtn");
+    if (backBtn) {
+      backBtn.addEventListener("click", () => {
+        initMainMenu();
+      });
+    }
+    
+    const damageCheck = document.getElementById("setting-damage");
+    const healthCheck = document.getElementById("setting-health");
+    const autosaveCheck = document.getElementById("setting-autosave");
+    
+    if (damageCheck) {
+      damageCheck.addEventListener("change", (e) => {
+        settings.showDamageNumbers = e.target.checked;
+        localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+      });
+    }
+    
+    if (healthCheck) {
+      healthCheck.addEventListener("change", (e) => {
+        settings.showEnemyHealth = e.target.checked;
+        window.gameSettings = settings;
+        localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+      });
+    }
+    
+    if (autosaveCheck) {
+      autosaveCheck.addEventListener("change", (e) => {
+        settings.autoSave = e.target.checked;
+        localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+      });
+    }
+  }
+
+  function initMainMenu() {
+    const mainMenuEl = document.getElementById("mainMenu");
+    if (!mainMenuEl) return;
+    
+    const highScore = localStorage.getItem("dungeonHighScore") || 0;
+    const saves = getAllSaves();
+    const hasSave = saves.length > 0;
+    
+    mainMenuEl.innerHTML = `
+      <div class="menu-screen">
+        <h1 class="menu-title">Dungeon Roguelike</h1>
+        <div class="menu-buttons">
+          <button type="button" id="startGameBtn" class="menu-screen-button">Start Game</button>
+          <button type="button" id="loadGameBtn" class="menu-screen-button">Load Game</button>
+          <button type="button" id="settingsMenuBtn" class="menu-screen-button">Settings</button>
+          ${gameStarted ? '<button type="button" id="quitToMenuBtn" class="menu-screen-button">Quit to Menu</button>' : ''}
+          <button type="button" id="quitGameBtn" class="menu-screen-button" style="margin-top: 10px; border-color: #ff4444; color: #ff4444;">Quit Game</button>
+        </div>
+        ${highScore > 0 ? `<div style="margin-top: 20px; text-align: center; color: var(--accent);">High Score: ${highScore}</div>` : ''}
+      </div>
+    `;
+    
+    // Re-bind event handlers
+    const startBtn = document.getElementById("startGameBtn");
+    const loadBtn = document.getElementById("loadGameBtn");
+    const settingsBtn = document.getElementById("settingsMenuBtn");
+    const quitToMenuBtn = document.getElementById("quitToMenuBtn");
+    const quitGameBtn = document.getElementById("quitGameBtn");
+    
+    if (startBtn) startBtn.addEventListener("click", startGame);
+    if (loadBtn) loadBtn.addEventListener("click", showLoadMenu);
+    if (settingsBtn) settingsBtn.addEventListener("click", showMainMenuSettings);
+    if (quitToMenuBtn) quitToMenuBtn.addEventListener("click", quitToMenu);
+    if (quitGameBtn) quitGameBtn.addEventListener("click", quitGame);
+  }
+  
+  function quitGame() {
+    if (confirm("Quit the game? Your progress will be saved automatically.")) {
+      if (settings.autoSave && gameStarted) {
+        saveGame();
+      }
+      // Close the window/tab if possible, otherwise just show a message
+      try {
+        window.close();
+      } catch (e) {
+        // Can't close window (might be opened by user), just return to menu
+        returnToMainMenu();
+        addLog("Game saved. You can close this tab/window.", "info");
+      }
+    }
   }
 
   function setInvestigateArmed(armed) {
@@ -346,9 +1013,16 @@ document.addEventListener("DOMContentLoaded", () => {
   function investigateAt(tx, ty) {
     const info = getInvestigationInfoAt(tx, ty);
     const describe = window.getInvestigationDescription;
-    const text = typeof describe === "function" ? describe(info) : "You investigate it. It investigates you back.";
+    let text = typeof describe === "function" ? describe(info) : "You investigate it. It investigates you back.";
 
     const kind = String(info?.kind || "info").toLowerCase();
+    
+    // Add health info for enemies
+    if (kind === "enemy" && info?.enemy) {
+      const e = info.enemy;
+      text += ` (HP: ${e.hp}/${e.hp + (e.maxHp || e.hp)})`;
+    }
+    
     const logType =
       kind === "enemy"
         ? "enemy"
@@ -574,6 +1248,7 @@ document.addEventListener("DOMContentLoaded", () => {
     hiddenArea = null;
     mouse = null;
     explored = new Set();
+    floorStats = { enemiesKilled: 0, itemsFound: 0, damageTaken: 0, damageDealt: 0, trapsTriggered: 0 };
 
     const roomCount = calculateRoomCountForFloor(floor);
 
@@ -614,18 +1289,20 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    // Pick boss room as the one farthest from start (keeps progression feel).
-    const sC = roomCenter(rooms[0]);
-    let bossIdx = 1;
-    let best = -1;
-    for (let i = 1; i < rooms.length; i++) {
-      const d = distManhattan(sC, roomCenter(rooms[i]));
-      if (d > best) {
-        best = d;
-        bossIdx = i;
+    // Pick boss room as the one farthest from start (only every 5 floors).
+    if (floor % 5 === 0) {
+      const sC = roomCenter(rooms[0]);
+      let bossIdx = 1;
+      let best = -1;
+      for (let i = 1; i < rooms.length; i++) {
+        const d = distManhattan(sC, roomCenter(rooms[i]));
+        if (d > best) {
+          best = d;
+          bossIdx = i;
+        }
       }
+      rooms[bossIdx].type = "boss";
     }
-    rooms[bossIdx].type = "boss";
 
     // Carve rooms.
     for (const r of rooms) {
@@ -639,11 +1316,48 @@ document.addEventListener("DOMContentLoaded", () => {
     // Connect rooms: MST ensures all rooms connected, then add a few extra edges for loops/randomness.
     connectRoomGraph();
 
+    // Generate special rooms (treasure, trap, shop) BEFORE populating
+    generateSpecialRooms();
+
     // Populate rooms.
     for (const r of rooms) {
       if (r.type === "enemy") {
         spawnEnemies(r.x, r.y, r.w, r.h);
         spawnPotion(r.x, r.y, r.w, r.h);
+        // Sometimes spawn food in enemy rooms too
+        if (Math.random() < 0.15) spawnFood(r.x, r.y, r.w, r.h);
+      } else if (r.type === "boss") {
+        // Spawn boss enemy (uppercase version of regular enemy)
+        spawnBossEnemy(r.x, r.y, r.w, r.h);
+        // Boss room has guaranteed potion
+        if (Math.random() < 0.8) spawnPotion(r.x, r.y, r.w, r.h);
+      } else if (r.type === "treasure") {
+        // Treasure room: lots of loot, no enemies
+        for (let i = 0; i < rand(2, 4); i++) {
+          spawnPotion(r.x, r.y, r.w, r.h);
+        }
+        // Spawn food in treasure rooms (higher chance)
+        if (Math.random() < 0.7) spawnFood(r.x, r.y, r.w, r.h);
+      } else if (r.type === "trap") {
+        // Trap room: many traps, high risk/reward
+        for (let i = 0; i < rand(3, 6); i++) {
+          const tx = rand(r.x, r.x + r.w - 1);
+          const ty = rand(r.y, r.y + r.h - 1);
+          const key = `${tx},${ty}`;
+          if (map[key] === "." && !map[`${key}_loot`] && !map[`${key}_trap`]) {
+            const trap = TRAP_TYPES[rand(0, TRAP_TYPES.length - 1)];
+            map[`${key}_trap`] = { ...trap, hidden: Math.random() < 0.3 };
+            if (!map[`${key}_trap`].hidden) map[key] = "~";
+          }
+        }
+        // Guaranteed potion in trap room
+        spawnPotion(r.x, r.y, r.w, r.h);
+      } else if (r.type === "shop") {
+        // Shop room: merchant NPC
+        const shopX = Math.floor(r.x + r.w / 2);
+        const shopY = Math.floor(r.y + r.h / 2);
+        map[`${shopX},${shopY}`] = "$";
+        map[`${shopX},${shopY}_shop`] = true;
       }
     }
 
@@ -781,18 +1495,56 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function getEnemyTypeForFloor() {
+    // Enemy type selection based on floor
+    if (floor >= 15) {
+      return Math.random() < 0.4 ? ORC : (Math.random() < 0.5 ? SKELETON : GOBLIN);
+    } else if (floor >= 10) {
+      return Math.random() < 0.5 ? SKELETON : GOBLIN;
+    } else if (floor >= 7) {
+      return Math.random() < 0.3 ? SKELETON : (Math.random() < 0.5 ? GOBLIN : BAT);
+    } else if (floor >= 5) {
+      return Math.random() < 0.4 ? GOBLIN : (Math.random() < 0.5 ? BAT : RAT);
+    } else if (floor >= 3) {
+      return Math.random() < 0.3 ? BAT : RAT;
+    } else {
+      return RAT;
+    }
+  }
+
+  function spawnBossEnemy(x, y, w, h) {
+    // Boss is uppercase version of regular enemy for this floor
+    const baseEnemy = getEnemyTypeForFloor();
+    const bossX = Math.floor(x + w / 2);
+    const bossY = Math.floor(y + h / 2);
+    
+    const boss = {
+      ...baseEnemy,
+      x: bossX,
+      y: bossY,
+      symbol: baseEnemy.symbol.toUpperCase(), // Uppercase symbol
+      name: `Boss ${baseEnemy.name}`,
+      hp: Math.floor(baseEnemy.hp * 2.5) + Math.floor(floor / 5), // Much stronger
+      dmg: Math.floor(baseEnemy.dmg * 1.5) + Math.floor(floor / 10),
+      toughness: (baseEnemy.toughness || 0) + 1,
+      statusEffects: {},
+    };
+    
+    enemies.push(boss);
+  }
+
   function spawnEnemies(x, y, w, h) {
     const count = rand(1, 2);
 
     for (let i = 0; i < count; i++) {
-      // Floor 1-4: rats. Starting at floor 5: goblins replace rats.
-      const t = floor >= 5 ? GOBLIN : RAT;
+      const t = getEnemyTypeForFloor();
 
       let placed = false;
       for (let attempt = 0; attempt < 60; attempt++) {
         const ex = rand(x, x + w - 1);
         const ey = rand(y, y + h - 1);
-        if (map[`${ex},${ey}`] !== ".") continue;
+        const tile = map[`${ex},${ey}`];
+        if (tile !== "." && tile !== "T") continue; // Don't spawn on trapdoor
         if (enemies.some((e) => e.x === ex && e.y === ey)) continue;
 
         enemies.push({
@@ -804,6 +1556,9 @@ document.addEventListener("DOMContentLoaded", () => {
           sight: t.sight,
           symbol: t.symbol || "r",
           name: t.name || "Rat",
+          toughness: t.toughness || 0,
+          speed: t.speed || 1,
+          statusEffects: {},
         });
         placed = true;
         break;
@@ -819,6 +1574,9 @@ document.addEventListener("DOMContentLoaded", () => {
           sight: t.sight,
           symbol: t.symbol || "r",
           name: t.name || "Rat",
+          toughness: t.toughness || 0,
+          speed: t.speed || 1,
+          statusEffects: {},
         });
       }
     }
@@ -841,8 +1599,67 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function spawnFood(x, y, w, h) {
+    const foods = [MUSHROOM, BERRY];
+    const food = foods[rand(0, foods.length - 1)];
+    
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const fx = rand(x, x + w - 1);
+      const fy = rand(y, y + h - 1);
+      if (map[`${fx},${fy}`] !== ".") continue;
+      if (enemies.some((e) => e.x === fx && e.y === fy)) continue;
+      if (map[`${fx},${fy}_loot`]) continue;
+
+      map[`${fx},${fy}`] = food.symbol;
+      map[`${fx},${fy}_loot`] = food;
+      return;
+    }
+  }
+
+  function generateSpecialRooms() {
+    // 15% chance for treasure room, 10% for trap room
+    if (rooms.length < 3) return; // Need at least 3 rooms
+    
+    const eligibleRooms = rooms.filter((r) => r.type === "enemy");
+    if (!eligibleRooms.length) return;
+
+    if (Math.random() < 0.15 && eligibleRooms.length > 0) {
+      const idx = rand(0, eligibleRooms.length - 1);
+      eligibleRooms[idx].type = "treasure";
+    }
+    
+    if (Math.random() < 0.10 && eligibleRooms.length > 0) {
+      const idx = rand(0, eligibleRooms.length - 1);
+      if (eligibleRooms[idx].type === "enemy") {
+        eligibleRooms[idx].type = "trap";
+      }
+    }
+    
+    // 5% chance for shop room
+    if (Math.random() < 0.05 && eligibleRooms.length > 0) {
+      const idx = rand(0, eligibleRooms.length - 1);
+      if (eligibleRooms[idx].type === "enemy") {
+        eligibleRooms[idx].type = "shop";
+      }
+    }
+  }
+
   function placeTrapdoor() {
-    const r = rooms.find((rr) => rr.type === "boss") || rooms[rooms.length - 1];
+    // On boss floors, place trapdoor in boss room, otherwise in farthest room
+    let r = rooms.find((rr) => rr.type === "boss");
+    if (!r) {
+      const sC = roomCenter(rooms[0]);
+      let farthestIdx = 0;
+      let best = -1;
+      for (let i = 1; i < rooms.length; i++) {
+        const d = distManhattan(sC, roomCenter(rooms[i]));
+        if (d > best) {
+          best = d;
+          farthestIdx = i;
+        }
+      }
+      r = rooms[farthestIdx];
+    }
     const tx = Math.floor(r.x + r.w / 2);
     const ty = Math.floor(r.y + r.h / 2);
     map[`${tx},${ty}`] = "T";
@@ -1081,8 +1898,19 @@ document.addEventListener("DOMContentLoaded", () => {
     if (target && typeof target.hp === "number") target.hp -= dmg;
     if (trap.status?.kind === "burning") {
       addBurning(target, trap.status.turns ?? 3, trap.status.dmgPerTurn ?? 1);
-      if (targetKind === "player") addLog("You are burning!", "danger");
+      if (targetKind === "player") {
+        addLog("You are burning!", "danger");
+        floorStats.trapsTriggered++;
+      }
     }
+    if (trap.type === "poison") {
+      addPoisoned(target, 4, 1);
+      if (targetKind === "player") {
+        addLog("Poisoned!", "danger");
+        floorStats.trapsTriggered++;
+      }
+    }
+    if (targetKind === "player") floorStats.trapsTriggered++;
 
     delete map[`${key}_trap`];
     map[key] = ".";
@@ -1190,11 +2018,63 @@ document.addEventListener("DOMContentLoaded", () => {
       const dy = player.y - e.y;
       const dist = Math.max(Math.abs(dx), Math.abs(dy));
 
+      // Check slow status
+      const slow = e.statusEffects?.slow;
+      if (slow && slow.turns > 0 && Math.random() < 0.5) {
+        tickStatusEffects(e, "enemy");
+        continue; // Skip turn when slowed
+      }
+
       if (dist === 1) {
-        const rolled = rollBellInt(0, e.dmg);
+        // Check invisibility - enemies can't see invisible players
+        if (player.statusEffects?.invisibility?.turns) {
+          // 80% chance to miss, 20% chance enemy still detects you
+          if (Math.random() < 0.8) {
+            tickStatusEffects(e, "enemy");
+            continue; // Miss due to invisibility
+          } else {
+            addLog(`${eName} detects you despite invisibility!`, "danger");
+          }
+        }
+        
+        // Enemies don't chase invisible players outside attack range
+        if (player.statusEffects?.invisibility?.turns && dist > 1) {
+          tickStatusEffects(e, "enemy");
+          continue;
+        }
+        
+        let rolled = rollBellInt(0, e.dmg);
+        const crit = Math.random() < 0.05;
+        if (crit && rolled > 0) {
+          rolled = Math.floor(rolled * 1.5);
+          addLog(`${eName} CRITICAL HIT! ${rolled} damage!`, "enemy");
+        }
+        
         const dmg = Math.max(0, rolled - player.toughness);
         player.hp -= dmg;
-        addLog(`${eName} hits you for ${dmg}`, dmg ? "enemy" : "block");
+        if (dmg > 0) {
+          addLog(`${eName} hits you for ${dmg}`, "enemy");
+          showDamageNumber(player.x, player.y, dmg, "enemy");
+          floorStats.damageTaken += dmg;
+          // Visual feedback
+          try {
+            if (gameEl) {
+              gameEl.style.transition = "filter 0.1s";
+              gameEl.style.filter = "brightness(1.5)";
+              setTimeout(() => {
+                if (gameEl) gameEl.style.filter = "";
+                setTimeout(() => {
+                  if (gameEl) gameEl.style.transition = "";
+                }, 100);
+              }, 100);
+            }
+          } catch (e) {
+            // Ignore visual feedback errors
+          }
+          player.combo = 0;
+        } else {
+          addLog(`${eName} hits you for ${dmg}`, "block");
+        }
         tickStatusEffects(e, "enemy");
         if (e.hp <= 0) {
           addLog(`${eName} dies`, "death");
@@ -1205,54 +2085,71 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const beforeX = e.x;
       const beforeY = e.y;
-      if (dist <= e.sight) {
-        const candidates = [
-          { x: e.x + Math.sign(dx), y: e.y + Math.sign(dy) },
-          { x: e.x + Math.sign(dx), y: e.y },
-          { x: e.x, y: e.y + Math.sign(dy) },
-          { x: e.x + Math.sign(dx), y: e.y - Math.sign(dy) },
-          { x: e.x - Math.sign(dx), y: e.y + Math.sign(dy) },
-          { x: e.x - Math.sign(dx), y: e.y },
-          { x: e.x, y: e.y - Math.sign(dy) },
-        ];
+      const speed = e.speed || 1;
+      const moves = slow ? 1 : Math.max(1, Math.floor(speed));
+      
+      let currentDist = dist;
+      for (let move = 0; move < moves && currentDist > 1; move++) {
+        if (currentDist <= e.sight) {
+          const candidates = [
+            { x: e.x + Math.sign(player.x - e.x), y: e.y + Math.sign(player.y - e.y) },
+            { x: e.x + Math.sign(player.x - e.x), y: e.y },
+            { x: e.x, y: e.y + Math.sign(player.y - e.y) },
+            { x: e.x + Math.sign(player.x - e.x), y: e.y - Math.sign(player.y - e.y) },
+            { x: e.x - Math.sign(player.x - e.x), y: e.y + Math.sign(player.y - e.y) },
+            { x: e.x - Math.sign(player.x - e.x), y: e.y },
+            { x: e.x, y: e.y - Math.sign(player.y - e.y) },
+          ];
 
-        let best = null;
-        let bestD = Infinity;
-        for (const c of candidates) {
-          if (c.x === e.x && c.y === e.y) continue;
-          if (!canEnemyStep(e.x, e.y, c.x, c.y)) continue;
-          const d2 = chebDist(c.x, c.y, player.x, player.y);
-          if (d2 < bestD) {
-            bestD = d2;
-            best = c;
+          let best = null;
+          let bestD = Infinity;
+          for (const c of candidates) {
+            if (c.x === e.x && c.y === e.y) continue;
+            if (!canEnemyStep(e.x, e.y, c.x, c.y)) continue;
+            const d2 = chebDist(c.x, c.y, player.x, player.y);
+            if (d2 < bestD) {
+              bestD = d2;
+              best = c;
+            }
+          }
+
+          if (best) {
+            // Bounds check
+            const tile = map[keyOf(best.x, best.y)] || "#";
+            if (tile !== "#") {
+              e.x = best.x;
+              e.y = best.y;
+            }
+          }
+        } else {
+          const dirs = [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+            [1, 1],
+            [1, -1],
+            [-1, 1],
+            [-1, -1],
+          ].sort(() => Math.random() - 0.5);
+
+          for (const [mx, my] of dirs) {
+            const nx = e.x + mx;
+            const ny = e.y + my;
+            // Bounds check - ensure tile exists and is walkable
+            const tile = map[keyOf(nx, ny)] || "#";
+            if (tile !== "#" && canEnemyStep(e.x, e.y, nx, ny)) {
+              e.x = nx;
+              e.y = ny;
+              break;
+            }
           }
         }
-
-        if (best) {
-          e.x = best.x;
-          e.y = best.y;
-        }
-      } else {
-        const dirs = [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-          [1, 1],
-          [1, -1],
-          [-1, 1],
-          [-1, -1],
-        ].sort(() => Math.random() - 0.5);
-
-        for (const [mx, my] of dirs) {
-          const nx = e.x + mx;
-          const ny = e.y + my;
-          if (canEnemyStep(e.x, e.y, nx, ny)) {
-            e.x = nx;
-            e.y = ny;
-            break;
-          }
-        }
+        
+        // Update distance after move
+        const newDx = player.x - e.x;
+        const newDy = player.y - e.y;
+        currentDist = Math.max(Math.abs(newDx), Math.abs(newDy));
       }
 
       // Enemies can trigger traps too (including hidden ones).
@@ -1302,34 +2199,86 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (enemy) {
-      const dealt = rollBellInt(0, player.dmg);
+      // Critical hits & misses
+      let dealt = rollBellInt(0, player.dmg);
+      const crit = Math.random() < 0.1; // 10% crit chance
+      const miss = Math.random() < 0.05; // 5% miss chance
+      
+      if (miss) {
+        dealt = 0;
+        addLog(`You miss ${(enemy?.name || "enemy").toLowerCase()}!`, "block");
+      } else if (crit && dealt > 0) {
+        dealt = Math.floor(dealt * 2);
+        addLog(`CRITICAL HIT! ${dealt} damage to ${(enemy?.name || "enemy").toLowerCase()}!`, "player");
+      } else {
+        addLog(`You hit ${(enemy?.name || "enemy").toLowerCase()} for ${dealt}`, dealt ? "player" : "block");
+      }
+      
       enemy.hp -= dealt;
-      addLog(`You hit ${(enemy?.name || "enemy").toLowerCase()} for ${dealt}`, dealt ? "player" : "block");
+      
+      // Show damage number and track stats
+      if (dealt > 0) {
+        showDamageNumber(enemy.x, enemy.y, dealt, crit ? "crit" : "player");
+        floorStats.damageDealt += dealt;
+      }
 
       if (enemy.hp <= 0) {
+        const enemyValue = Math.max(1, (enemy.hp + dealt)); // Use original HP before death
         addLog(`${enemy?.name || "Enemy"} dies`, "death");
         enemies = enemies.filter((e) => e !== enemy);
+        
+        // Combo system
+        player.kills++;
+        player.combo++;
+        const scoreGain = Math.floor(enemyValue) * 10 * (1 + Math.floor(player.combo / 3));
+        player.score += scoreGain;
+        floorStats.scoreGained = (floorStats.scoreGained || 0) + scoreGain;
+        floorStats.maxCombo = Math.max(floorStats.maxCombo || 0, player.combo);
+        
+        // Combo messages
+        if (player.combo === 3) addLog("Double kill!", "loot");
+        else if (player.combo === 5) addLog("Killing spree!", "loot");
+        else if (player.combo === 10) addLog("Unstoppable!", "loot");
+        else if (player.combo > 0 && player.combo % 5 === 0) addLog(`${player.combo} kills!`, "loot");
 
         // Rat meat drop (rats only).
         if ((enemy?.name || "").toLowerCase().includes("rat") && Math.random() < 0.2 && !map[`${nx},${ny}_loot`]) {
           map[`${nx},${ny}`] = RAT_MEAT.symbol;
           map[`${nx},${ny}_loot`] = RAT_MEAT;
           addLog("Rat dropped meat", "loot");
-        } else if (Math.random() < 0.05) {
+        } else if (Math.random() < 0.05 || (player.combo >= 3 && Math.random() < 0.15)) {
+          // Better drop rate on combo
           const p = POTIONS[rand(0, POTIONS.length - 1)];
           map[`${nx},${ny}`] = "P";
           map[`${nx},${ny}_loot`] = p;
           addLog(`${enemy?.name || "Enemy"} dropped a potion`, "loot");
         }
+      } else {
+        // Reset combo if enemy survives
+        player.combo = 0;
       }
     } else {
-      player.x = nx;
-      player.y = ny;
+      // Speed boost allows double move occasionally
+      const speedBoost = player.statusEffects?.speed;
+      let moves = 1;
+      if (speedBoost && speedBoost.turns > 0 && Math.random() < 0.3) {
+        moves = 2;
+      }
+      
+      for (let m = 0; m < moves; m++) {
+        if (m === 0 || (m === 1 && isPlayerWalkable(nx, ny))) {
+          player.x = nx;
+          player.y = ny;
+        }
+      }
     }
 
-    // Hunger cost: move=0.1, attack=0.2
-    if (enemy) tickHunger(0.2);
-    else tickHunger(0.1);
+    // Hunger cost based on action type
+    // Speed status reduces hunger cost
+    const speedBoost = player.statusEffects?.speed?.value || 0;
+    const baseHungerCost = enemy ? HUNGER_COST_ATTACK : HUNGER_COST_MOVE;
+    const hungerCost = Math.max(HUNGER_COST_MOVE, baseHungerCost - (speedBoost * HUNGER_COST_MOVE));
+    tickHunger(hungerCost);
 
     // Traps trigger when you step onto the tile (including hidden traps that look like floor).
     triggerTrapAtEntity(player.x, player.y, player, "player");
@@ -1341,28 +2290,45 @@ document.addEventListener("DOMContentLoaded", () => {
       player.inventory.push(loot);
       const lootName = loot?.name || "item";
       addLog(`Picked up ${lootName}`, "loot");
+      floorStats.itemsFound++;
       delete map[`${pKey}_loot`];
       map[pKey] = ".";
     }
 
-    if (tile === "T") {
-      addLog(`Descending to floor ${floor + 1}`, "floor");
-      floor++;
-      generateFloor();
+    // Check if we're standing on a trapdoor (either just moved onto it, or killed enemy on it)
+    const currentTile = map[keyOf(player.x, player.y)] || "#";
+    if (currentTile === "T" && !enemies.some((e) => e.x === player.x && e.y === player.y)) {
+      showFloorTransition();
+      return;
+    }
+    
+    // Shop interaction
+    const shopKey = keyOf(player.x, player.y);
+    if (map[`${shopKey}_shop`]) {
+      openShopMenu();
       return;
     }
 
     moveMouse();
     moveEnemies();
     tickStatusEffects(player, "player");
+    
+    // Hunger-based regeneration when out of combat
+    tickHungerRegeneration();
 
     if (player.hp <= 0) {
-      addLog("You died", "danger");
-      alert("You died");
-      floor = 1;
-      player.hp = player.maxHp;
-      player.hunger = player.maxHunger;
-      generateFloor();
+      addLog("You died", "death");
+      // Save high score before returning to menu
+      const highScore = localStorage.getItem("dungeonHighScore") || 0;
+      if (player.score > Number(highScore)) {
+        localStorage.setItem("dungeonHighScore", player.score);
+        addLog(`NEW HIGH SCORE: ${player.score}!`, "loot");
+      }
+      
+      // Return to main menu after a brief delay
+      setTimeout(() => {
+        returnToMainMenu();
+      }, 2000);
       return;
     }
 
@@ -1389,6 +2355,77 @@ document.addEventListener("DOMContentLoaded", () => {
     if (p.effect === "toughnessBoost") {
       player.toughness += p.value;
       addLog("You feel tougher", "loot");
+    }
+
+    if (p.effect === "speed") {
+      // If already has speed, refresh duration instead of stacking
+      if (player.statusEffects?.speed) {
+        player.statusEffects.speed.turns = Math.max(player.statusEffects.speed.turns, p.turns || 10);
+        addLog(`Speed refreshed! (${player.statusEffects.speed.turns} turns)`, "loot");
+      } else {
+        addStatus(player, "speed", p.turns || 10, p.value);
+        addLog(`You feel faster! (+${p.value} speed for ${p.turns || 10} turns)`, "loot");
+      }
+    }
+
+    if (p.effect === "invisibility") {
+      // If already invisible, refresh duration instead of stacking
+      if (player.statusEffects?.invisibility) {
+        player.statusEffects.invisibility.turns = Math.max(player.statusEffects.invisibility.turns, p.turns || 5);
+        addLog(`Invisibility refreshed! (${player.statusEffects.invisibility.turns} turns)`, "loot");
+      } else {
+        addStatus(player, "invisibility", p.turns || 5, p.value);
+        addLog(`You become invisible! (${p.turns || 5} turns)`, "loot");
+      }
+    }
+
+    if (p.effect === "explosive") {
+      // Damage all adjacent enemies
+      let hit = false;
+            const enemiesToKill = [];
+            for (const e of enemies) {
+              const dist = Math.max(Math.abs(e.x - player.x), Math.abs(e.y - player.y));
+              if (dist <= 1) {
+                const dmg = p.value || 3;
+                const enemyValue = Math.max(1, e.hp);
+                e.hp -= dmg;
+                hit = true;
+                
+                // Show damage number
+                showDamageNumber(e.x, e.y, dmg, "player");
+                
+                if (e.hp <= 0) {
+                  enemiesToKill.push(e);
+                  addLog(`${e.name} dies from explosion!`, "death");
+                  
+                  // Award combo and score with adjusted scaling
+                  player.kills++;
+                  player.combo++;
+                  const comboMultiplier = 1 + Math.floor(player.combo / 5);
+                  player.score += Math.floor(enemyValue) * 8 * comboMultiplier;
+                  floorStats.enemiesKilled++;
+                  floorStats.damageDealt += dmg;
+                  floorStats.scoreGained = (floorStats.scoreGained || 0) + Math.floor(enemyValue) * 8 * comboMultiplier;
+                  floorStats.maxCombo = Math.max(floorStats.maxCombo || 0, player.combo);
+                  
+                  // Combo messages
+                  if (player.combo === 3) addLog("Double kill!", "loot");
+                  else if (player.combo === 5) addLog("Killing spree!", "loot");
+                  else if (player.combo === 10) addLog("Unstoppable!", "loot");
+                } else {
+                  addLog(`Explosion hits ${e.name} for ${dmg}!`, "player");
+                  floorStats.damageDealt += dmg;
+                  // Reset combo if enemy survives
+                  player.combo = 0;
+                }
+              }
+            }
+      
+      // Remove killed enemies
+      enemies = enemies.filter((en) => !enemiesToKill.includes(en));
+      
+      if (!hit) addLog("Explosive potion fizzles...", "block");
+      else addLog("BOOM! Explosive potion!", "player");
     }
 
     if (p.effect === "food") {
@@ -1431,8 +2468,11 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ===================== DRAW ===================== */
 
   let measureEl = null;
+  let cachedCellMetrics = null;
 
   function getMonoCellMetricsPx(testFontPx = 100) {
+    // Cache metrics on first call
+    if (cachedCellMetrics) return cachedCellMetrics;
     // Measures actual monospace character width/height at a known font size.
     // Returns width/height per 1px of font-size (so we can scale linearly).
     if (!measureEl) {
@@ -1455,7 +2495,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const unitW = rect.width / (testFontPx * n);
     const unitH = rect.height / testFontPx;
 
-    return { unitW, unitH };
+    cachedCellMetrics = { unitW, unitH };
+    return cachedCellMetrics;
   }
 
   function updateMapFontSize() {
@@ -1514,11 +2555,22 @@ document.addEventListener("DOMContentLoaded", () => {
       if (burning?.turns) {
         statusLines.push(`You are burning -${burning.dmgPerTurn} hp per turn (${burning.turns} turns remaining)`);
       }
+      // Show all status effects
+      const statusEffects = player.statusEffects || {};
+      if (statusEffects.poisoned?.turns) statusLines.push(`Poisoned -${statusEffects.poisoned.dmgPerTurn} hp per turn (${statusEffects.poisoned.turns} turns)`);
+      if (statusEffects.speed?.turns) statusLines.push(`Speed boost (${statusEffects.speed.turns} turns)`);
+      if (statusEffects.invisibility?.turns) statusLines.push(`Invisible (${statusEffects.invisibility.turns} turns)`);
+      if (statusEffects.slow?.turns) statusLines.push(`Slowed (${statusEffects.slow.turns} turns)`);
+      if (statusEffects.regeneration?.turns) statusLines.push(`Regenerating (${statusEffects.regeneration.turns} turns)`);
+      
       content = `<div class="menu-status">
         HP ${player.hp}/${player.maxHp}<br>
         DMG 0-${player.dmg}<br>
         Tough ${player.toughness}<br>
-        Floor ${floor}
+        Floor ${floor}<br>
+        Score: ${player.score || 0}<br>
+        Kills: ${player.kills || 0}<br>
+        Combo: ${player.combo || 0}x
         ${statusLines.length ? "<br><br>" + statusLines.map(escapeHtml).join("<br>") : ""}
       </div>`;
     } else if (activeTab === "cook") {
@@ -1543,6 +2595,58 @@ document.addEventListener("DOMContentLoaded", () => {
           content = `<div class="menu-inventory">${buttons}</div>`;
         }
       }
+    } else if (activeTab === "shop") {
+      const shopItems = [
+        ...POTIONS.slice(0, 3).map((p, i) => ({ ...p, price: 50 + i * 25, shopIndex: i })),
+        ...POTIONS.slice(3).map((p, i) => ({ ...p, price: 75 + i * 25, shopIndex: i + 3 })),
+      ];
+      
+      const buttons = shopItems
+        .map(
+          (item) => {
+            let desc = "";
+            if (item.effect === "fullHeal") desc = " (Heal +1 Max HP)";
+            else if (item.effect === "damageBoost") desc = " (+1 Damage)";
+            else if (item.effect === "toughnessBoost") desc = " (+1 Toughness)";
+            else if (item.effect === "speed") desc = ` (Speed ${item.turns || 10} turns)`;
+            else if (item.effect === "invisibility") desc = ` (Invisible ${item.turns || 5} turns)`;
+            else if (item.effect === "explosive") desc = " (AOE Damage)";
+            return `<button type="button" data-buy-item="${item.shopIndex}" class="menu-button" style="color:${item.color};${player.score < item.price ? "opacity:0.5;" : ""}" title="${escapeHtml(item.name + desc)}">
+              ${escapeHtml(item.name)}${desc ? `<small style="opacity:0.7;">${escapeHtml(desc)}</small>` : ""}<br><small>${item.price} score</small>
+            </button>`;
+          },
+        )
+        .join("");
+      content = `<div class="menu-status">
+        <div>Score: ${player.score}</div>
+        <div style="margin-top: 10px;">Shop Items:</div>
+        <div class="menu-inventory">${buttons}</div>
+      </div>`;
+    } else if (activeTab === "settings") {
+      const highScore = localStorage.getItem("dungeonHighScore") || 0;
+      content = `<div class="menu-status">
+        <div style="margin-bottom: 15px; text-align: center; padding: 10px; background: rgba(0, 0, 0, 0.5); border-radius: 8px;">
+          <div style="margin: 5px 0;">High Score: ${highScore}</div>
+          <div style="margin: 5px 0;">Current Score: ${player.score || 0}</div>
+        </div>
+        <div style="margin-bottom: 15px;">
+          <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+            <input type="checkbox" ${settings.showDamageNumbers ? "checked" : ""} data-setting="showDamageNumbers" style="width: 20px; height: 20px;">
+            Show Damage Numbers
+          </label>
+          <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+            <input type="checkbox" ${settings.showEnemyHealth ? "checked" : ""} data-setting="showEnemyHealth" style="width: 20px; height: 20px;">
+            Show Enemy Health
+          </label>
+          <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+            <input type="checkbox" ${settings.autoSave ? "checked" : ""} data-setting="autoSave" style="width: 20px; height: 20px;">
+            Auto-Save
+          </label>
+        </div>
+        <div style="margin-top: 15px;">
+          <button type="button" data-action="save-game" class="menu-button" style="width: 100%; margin: 5px 0;">Save Game</button>
+        </div>
+      </div>`;
     } else {
       content = `<div class="menu-log">${logHistory
         .map((l) => `<div class="log-line" style="color:${l.color}">${escapeHtml(l.text)}</div>`)
@@ -1555,7 +2659,10 @@ document.addEventListener("DOMContentLoaded", () => {
           ${tabBtn("inventory", "Inventory")}
           ${tabBtn("status", "Status")}
           ${cookingAtCampfire ? tabBtn("cook", "Cook") : ""}
+          ${atShop ? tabBtn("shop", "Shop") : ""}
+          ${tabBtn("settings", "Settings")}
           ${tabBtn("log", "Log")}
+          ${actionBtn("quit-to-menu", "Quit to Menu")}
           ${actionBtn("close-menu", "Close")}
         </div>
         <div class="menu-content">${content}</div>
@@ -1564,11 +2671,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function draw() {
-    if (!gameEl) return;
+    if (!gameEl || inMainMenu) return;
 
     // Live log
     renderLiveLog();
     updateHud();
+    updateDamageNumbers();
 
     if (menuOpen) {
       activeTab = activeTab || "inventory";
@@ -1623,7 +2731,6 @@ document.addEventListener("DOMContentLoaded", () => {
           if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
             const isFalseWall = hiddenArea.falseWalls?.has(key);
             const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
-            const mouseWallPulseOn = Date.now() % 240 < 120;
             const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
             out += tileSpan("#", color, dimCss);
           } else {
@@ -1663,11 +2770,24 @@ document.addEventListener("DOMContentLoaded", () => {
             } else {
               out += tileSpan("~", trap.color || "orange");
             }
-          } else if (ch === ".") out += tileSpan(".", "#555"); // dark gray floors
+          }           else if (ch === ".") out += tileSpan(".", "#555"); // dark gray floors
           else if (ch === "~") out += tileSpan("~", "orange"); // fallback (should normally be typed via _trap)
           else if (ch === "#") out += tileSpan("#", "lime"); // green walls
-          else if (ch === "T") out += tileSpan("T", "#00ff3a", popCss); // trapdoor
+          else if (ch === "T") {
+            // Only show trapdoor if no enemy is on it
+            if (!enemyByPos.has(key)) {
+              out += tileSpan("T", "#00ff3a", popCss); // trapdoor
+            } else {
+              // Enemy is on trapdoor, show enemy instead
+              const e = enemyByPos.get(key);
+              const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
+              const isBoss = e.symbol && e.symbol === e.symbol.toUpperCase() && e.symbol !== e.symbol.toLowerCase();
+              const bossGlow = isBoss ? "text-shadow: 0 0 4px #ff0000, 0 0 8px #ff0000;" : "";
+              out += tileSpan(e.symbol || "E", e.color, `${extra}${bossGlow}`);
+            }
+          }
           else if (ch === "C") out += tileSpan("C", "orange", popCss); // campfire
+          else if (ch === "$") out += tileSpan("$", "#ffd700", popCss); // shop
           else out += tileSpan(ch, "white");
         }
       }
@@ -1691,11 +2811,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const action = btn.dataset.action;
         if (action === "menu") {
+          if (inMainMenu) return;
           toggleMenu();
           return;
         }
         if (action === "investigate") {
-          if (menuOpen || gamePaused) return;
+          if (menuOpen || gamePaused || inMainMenu) return;
           setInvestigateArmed(!investigateArmed);
           return;
         }
@@ -1705,7 +2826,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Tap-to-move on the map: tap a tile to auto-walk to it (step-by-step).
     if (mapContainerEl) {
       mapContainerEl.addEventListener("pointerdown", (e) => {
-        if (menuOpen || gamePaused) return;
+        if (menuOpen || gamePaused || inMainMenu) return;
         // Don't treat button taps as movement (menu button lives outside, but be safe).
         if (e.target.closest("button")) return;
 
@@ -1768,6 +2889,15 @@ document.addEventListener("DOMContentLoaded", () => {
           }
           // If it's far, keep normal behavior: walk to it.
         }
+        
+        // Shop: tap to open shop menu when adjacent/on it.
+        if (tappedTile === "$") {
+          const d = chebDist(player.x, player.y, tx, ty);
+          if (d <= 1) {
+            openShopMenu();
+            return;
+          }
+        }
 
         if (investigateArmed) {
           e.preventDefault();
@@ -1827,6 +2957,17 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
+        if (btn.dataset.action === "quit-to-menu") {
+          quitToMenu();
+          return;
+        }
+
+        if (btn.dataset.action === "save-game") {
+          saveGame();
+          draw();
+          return;
+        }
+
         if (btn.dataset.tab) {
           setTab(btn.dataset.tab);
           return;
@@ -1839,21 +2980,114 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (btn.dataset.cookFood != null) {
           cookFood(Number(btn.dataset.cookFood));
+          return;
+        }
+
+        if (btn.dataset.buyItem != null) {
+          buyShopItem(Number(btn.dataset.buyItem));
+          return;
+        }
+
+        if (btn.dataset.setting) {
+          settings[btn.dataset.setting] = btn.checked;
+          window.gameSettings = settings; // Update global reference
+          localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+          if (settings.autoSave && btn.dataset.setting !== "autoSave") {
+            setTimeout(() => saveGame(), 100);
+          }
+          draw();
+          return;
         }
       });
     }
 
     window.addEventListener("resize", () => updateMapFontSize());
+    
+    // Keyboard shortcuts (for desktop testing)
+    window.addEventListener("keydown", (e) => {
+      if (inMainMenu) return;
+      if (menuOpen && e.key === "Escape") {
+        toggleMenu();
+        e.preventDefault();
+        return;
+      }
+      if (gamePaused || menuOpen) return;
+      
+      // Arrow keys / WASD for movement
+      if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") {
+        stopAutoMove();
+        move(0, -1);
+        e.preventDefault();
+      } else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") {
+        stopAutoMove();
+        move(0, 1);
+        e.preventDefault();
+      } else if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") {
+        stopAutoMove();
+        move(-1, 0);
+        e.preventDefault();
+      } else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") {
+        stopAutoMove();
+        move(1, 0);
+        e.preventDefault();
+      } else if (e.key === "q" || e.key === "Q" || e.key === "e" || e.key === "E") {
+        // Diagonal movement
+        stopAutoMove();
+        if (e.key === "q" || e.key === "Q") move(-1, -1);
+        else move(1, -1);
+        e.preventDefault();
+      } else if (e.key === "z" || e.key === "Z" || e.key === "c" || e.key === "C") {
+        stopAutoMove();
+        if (e.key === "z" || e.key === "Z") move(-1, 1);
+        else move(1, 1);
+        e.preventDefault();
+      } else if (e.key === "i" || e.key === "I") {
+        toggleMenu();
+        setTab("inventory");
+        e.preventDefault();
+      } else if (e.key === "m" || e.key === "M") {
+        toggleMenu();
+        e.preventDefault();
+      } else if (e.key === "Escape") {
+        stopAutoMove();
+        e.preventDefault();
+      }
+    });
   }
 
   /* ===================== INIT ===================== */
 
-  bindInputs();
-  generateFloor();
+  // Load settings from localStorage
+  try {
+    const savedSettings = localStorage.getItem("dungeonGameSettings");
+    if (savedSettings) {
+      settings = { ...settings, ...JSON.parse(savedSettings) };
+    }
+  } catch (e) {
+    // Use defaults
+  }
+  
+  // Expose settings globally for investigation descriptions
+  window.gameSettings = settings;
 
-  // Redraw periodically so hidden trap flashing is visible.
-  window.setInterval(() => {
-    if (menuOpen) return;
-    draw();
-  }, 250);
+  try {
+    bindInputs();
+    initMainMenu(); // Initialize main menu
+    
+    // Set initial display state
+    const mapContainerEl = document.getElementById("mapContainer");
+    const controlsEl = document.getElementById("controls");
+    if (mapContainerEl) mapContainerEl.style.display = "none";
+    if (controlsEl) controlsEl.style.display = "none";
+
+    // Redraw periodically so hidden trap flashing is visible.
+    window.setInterval(() => {
+      if (menuOpen || inMainMenu) return;
+      draw();
+    }, 250);
+  } catch (error) {
+    console.error("Game initialization error:", error);
+    if (gameEl) gameEl.innerHTML = `<div style="color: red; padding: 20px;">Error: ${error.message}<br>Check console for details.</div>`;
+  }
 });
+
