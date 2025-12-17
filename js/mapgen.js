@@ -566,7 +566,15 @@ function spawnValuable(x, y, w, h, chance = 0.08) {
   if (!Array.isArray(VALUABLES) || !VALUABLES.length) return;
   if (!rollChance(chance)) return;
 
-  const it = VALUABLES[rand(0, VALUABLES.length - 1)];
+  const base = VALUABLES[rand(0, VALUABLES.length - 1)];
+  const rar = typeof pickRarityForFloor === "function" ? pickRarityForFloor(floor) : null;
+  const rarityId = rar?.id || "common";
+  const it = {
+    ...base,
+    rarity: rarityId,
+    value: typeof calcValuableValue === "function" ? calcValuableValue(base.baseValue || base.value || 1, rarityId) : base.value,
+    name: `${rar?.label || "Common"} ${base.name}`,
+  };
   for (let attempt = 0; attempt < 40; attempt++) {
     const vx = rand(x, x + w - 1);
     const vy = rand(y, y + h - 1);

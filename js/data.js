@@ -9,13 +9,19 @@ const POTIONS = [
   { name: "Explosive Potion", effect: "explosive", value: 3, symbol: "P", color: "#ff8800" },
 ];
 
+// Rarity is an OUTLINE + a MULTIPLIER.
+// Level is the base scaling axis; rarity multiplies stats/value.
 const RARITIES = [
-  { id: "trash", label: "Trash", color: "#9e9e9e", bonus: 0, weight: 52 },
-  { id: "common", label: "Common", color: "#cfd8dc", bonus: 1, weight: 28 },
-  { id: "uncommon", label: "Uncommon", color: "#4caf50", bonus: 2, weight: 14 },
-  { id: "rare", label: "Rare", color: "#2196f3", bonus: 3, weight: 5 },
-  { id: "legendary", label: "Legendary", color: "#ff9800", bonus: 5, weight: 1 },
+  { id: "trash", label: "Trash", outline: "#8e8e8e", mult: 0.8, weight: 52 },
+  { id: "common", label: "Common", outline: "#cfd8dc", mult: 1.0, weight: 28 },
+  { id: "uncommon", label: "Uncommon", outline: "#4caf50", mult: 1.25, weight: 14 },
+  { id: "rare", label: "Rare", outline: "#2196f3", mult: 1.6, weight: 5 },
+  { id: "legendary", label: "Legendary", outline: "#ff9800", mult: 2.0, weight: 1 },
 ];
+
+function getRarity(rarityId) {
+  return (Array.isArray(RARITIES) ? RARITIES.find((r) => r.id === rarityId) : null) || RARITIES[1] || RARITIES[0];
+}
 
 function pickRarityForFloor(f) {
   // Better odds deeper, but level will still dominate damage.
@@ -38,9 +44,10 @@ function pickRarityForFloor(f) {
 
 function calcWeaponMaxDamage(level, rarityId) {
   const lvl = Math.max(1, Math.floor(Number(level || 1)));
-  const rar = (Array.isArray(RARITIES) ? RARITIES.find((r) => r.id === rarityId) : null) || RARITIES[0];
-  // Level is the base damage; rarity adds a small bonus.
-  return Math.max(1, lvl + Math.max(0, Number(rar.bonus || 0)));
+  const rar = getRarity(rarityId);
+  // Level is the base damage; rarity multiplies it.
+  const mult = Math.max(0.1, Number(rar.mult || 1));
+  return Math.max(1, Math.floor(lvl * mult));
 }
 
 function makeSword(level, rarity = null) {
@@ -56,19 +63,27 @@ function makeSword(level, rarity = null) {
     level: lvl,
     maxDamage: maxDmg,
     symbol: "/",
-    color: rar.color,
+    // Base item color (rarity is shown via outline).
+    color: "#e6e6e6",
   };
 }
 
 // Valuables: can’t be used in-dungeon; meant to be sold after you extract.
 // Keep the symbols ASCII so monospace rendering stays consistent.
 const VALUABLES = [
-  { name: "Coin Pouch", effect: "valuable", value: 30, symbol: "*", color: "#ffd700" },
-  { name: "Silver Ring", effect: "valuable", value: 55, symbol: "*", color: "#cfd8dc" },
-  { name: "Jeweled Goblet", effect: "valuable", value: 90, symbol: "*", color: "#7fffd4" },
-  { name: "Ancient Relic", effect: "valuable", value: 140, symbol: "*", color: "#ff8c00" },
-  { name: "Royal Gem", effect: "valuable", value: 220, symbol: "*", color: "#ff66ff" },
+  { name: "Coin Pouch", effect: "valuable", baseValue: 30, symbol: "*", color: "#ffd700" },
+  { name: "Silver Ring", effect: "valuable", baseValue: 55, symbol: "*", color: "#cfd8dc" },
+  { name: "Jeweled Goblet", effect: "valuable", baseValue: 90, symbol: "*", color: "#7fffd4" },
+  { name: "Ancient Relic", effect: "valuable", baseValue: 140, symbol: "*", color: "#ff8c00" },
+  { name: "Royal Gem", effect: "valuable", baseValue: 220, symbol: "*", color: "#ff66ff" },
 ];
+
+function calcValuableValue(baseValue, rarityId) {
+  const base = Math.max(1, Math.floor(Number(baseValue || 1)));
+  const rar = getRarity(rarityId);
+  const mult = Math.max(0.1, Number(rar.mult || 1));
+  return Math.max(1, Math.floor(base * mult));
+}
 
 const RAT_MEAT = { name: "Rat Meat", effect: "food", hunger: 2, heal: 0, symbol: "M", color: "#ff7aa0", cooked: false };
 const COOKED_RAT_MEAT = {

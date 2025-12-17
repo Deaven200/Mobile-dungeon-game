@@ -65,6 +65,15 @@ function updateMapFontSize() {
 }
 
 function renderMenuHtml() {
+  const rarityOutlineCss = (it) => {
+    const rid = String(it?.rarity || "");
+    const rar = (Array.isArray(RARITIES) ? RARITIES.find((r) => r.id === rid) : null) || null;
+    const c = rar?.outline;
+    if (!c) return "";
+    // Cheap outline with multiple shadows.
+    return `text-shadow: -1px 0 ${c}, 1px 0 ${c}, 0 -1px ${c}, 0 1px ${c}, 0 0 6px ${c};`;
+  };
+
   const tabBtn = (tab, label) =>
     `<button type="button" data-tab="${tab}" class="${activeTab === tab ? "is-active" : ""}">${label}</button>`;
   const actionBtn = (action, label) => `<button type="button" data-action="${action}">${label}</button>`;
@@ -83,7 +92,7 @@ function renderMenuHtml() {
     });
 
     const btn = (it, idx, subtitle = "") =>
-      `<button type="button" data-use-item="${idx}" class="menu-button" style="color:${it?.color || "cyan"};" title="${escapeHtml(it?.name || "")}">
+      `<button type="button" data-use-item="${idx}" class="menu-button" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}" title="${escapeHtml(it?.name || "")}">
         ${escapeHtml(it?.name || "Item")}${subtitle ? `<br><small style="opacity:0.75;">${escapeHtml(subtitle)}</small>` : ""}
       </button>`;
 
@@ -95,7 +104,7 @@ function renderMenuHtml() {
       const eqLine = (label, it, handKey) => {
         if (!it) return `<div>${escapeHtml(label)}: <span style="opacity:0.7;">(empty)</span></div>`;
         const meta = it?.effect === "weapon" ? ` 0-${Number(it?.maxDamage || 0)}` : "";
-        return `<div>${escapeHtml(label)}: <span style="color:${it?.color || "cyan"};">${escapeHtml(it?.name || "Item")}${escapeHtml(
+        return `<div>${escapeHtml(label)}: <span style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}">${escapeHtml(it?.name || "Item")}${escapeHtml(
           meta,
         )}</span> <button type="button" data-unequip-hand="${escapeHtml(handKey)}" style="margin-left:8px;">Unequip</button></div>`;
       };
@@ -118,7 +127,7 @@ function renderMenuHtml() {
         ? `<div class="menu-status" style="margin: 10px 0 4px; opacity:0.9;">Weapons (tap to equip)</div><div class="menu-inventory">${weapons
             .map(({ it, idx }) => {
               const subtitle = `Lv ${Number(it?.level || 1)} • ${String(it?.rarity || "trash")} • 0-${Number(it?.maxDamage || 0)}`;
-              return `<button type="button" data-equip-main="${idx}" class="menu-button" style="color:${it?.color || "cyan"};" title="${escapeHtml(
+              return `<button type="button" data-equip-main="${idx}" class="menu-button" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}" title="${escapeHtml(
                 it?.name || "",
               )}">
                 ${escapeHtml(it?.name || "Weapon")}<br><small style="opacity:0.75;">${escapeHtml(subtitle)}</small><br><small style="opacity:0.7;">Equip main</small>
@@ -214,7 +223,7 @@ function renderMenuHtml() {
     const sellButtons = valuables
       .map(
         ({ it, idx, sell }) =>
-          `<button type="button" data-sell-item="${idx}" class="menu-button" style="color:${it?.color || "#ffd700"};${sell <= 0 ? "opacity:0.5;" : ""}">
+          `<button type="button" data-sell-item="${idx}" class="menu-button" style="color:${it?.color || "#ffd700"};${rarityOutlineCss(it)}${sell <= 0 ? "opacity:0.5;" : ""}">
             ${escapeHtml(it?.name || "Valuable")}<br><small>+${sell} gold</small>
           </button>`,
       )
@@ -492,7 +501,12 @@ function draw() {
         pushCell("#", `color:${color};`);
       } else if (lootAtKey(key)) {
         const p = lootAtKey(key);
-        pushCell(p.symbol, `color:${p.color || "cyan"};${popCss}`);
+        const rid = String(p?.rarity || "");
+        const rar = (Array.isArray(RARITIES) ? RARITIES.find((r) => r.id === rid) : null) || null;
+        const outline = rar?.outline
+          ? `text-shadow: -1px 0 ${rar.outline}, 1px 0 ${rar.outline}, 0 -1px ${rar.outline}, 0 1px ${rar.outline}, 0 0 6px ${rar.outline};`
+          : "";
+        pushCell(p.symbol, `color:${p.color || "cyan"};${popCss}${outline}`);
       } else {
         const ch = tileAtKey(key);
         const trap = trapAtKey(key);
