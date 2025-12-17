@@ -94,9 +94,6 @@ function generateFloor() {
       return { doorX: dx, doorY: dy };
     };
 
-    // Center entrance (dungeon door).
-    map[keyOf(cx, cy)] = TILE.ENTRANCE;
-
     // Campfire at the camp center.
     const fireX = cx - 5;
     const fireY = cy + 6;
@@ -118,6 +115,11 @@ function generateFloor() {
     carvePath(fireX, fireY, shopB.doorX, shopB.doorY);
     carvePath(fireX, fireY, hut1.doorX, hut1.doorY);
     carvePath(cx, cy, hut2.doorX, hut2.doorY);
+
+    // Center entrance (dungeon door).
+    // Note: carvePath() writes TILE.FLOOR along the route, including its start tile,
+    // so we restore the entrance after carving paths.
+    map[keyOf(cx, cy)] = TILE.ENTRANCE;
 
     // Spawn player near the entrance.
     player.x = cx;
