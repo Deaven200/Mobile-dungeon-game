@@ -1,6 +1,6 @@
 /* Simple offline cache for the game (PWA). */
 
-const CACHE_NAME = "dungeon-roguelike-v104";
+const CACHE_NAME = "dungeon-roguelike-v105";
 
 const PRECACHE_URLS = [
   "./",
