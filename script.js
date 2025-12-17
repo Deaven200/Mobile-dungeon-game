@@ -168,231 +168,6 @@ document.addEventListener("DOMContentLoaded", () => {
     return arr;
   }
 
-  function getPaletteName() {
-    const v = String(settings?.paletteMode || "default");
-    if (v === "highContrast") return "highContrast";
-    if (v === "colorblind") return "colorblind";
-    return "default";
-  }
-
-  function getPalette() {
-    // Default colors roughly match the current look.
-    const palettes = {
-      default: {
-        ui: { bg: "#000000", fg: "#00ff00", accent: "#00ffff" },
-        map: {
-          player: "cyan",
-          wall: "lime",
-          floor: "#555",
-          fogWall: "lime",
-          fogFloor: "#555",
-          mouse: "#eee",
-          trapVisible: "orange",
-          hiddenTrapFlash: "orange",
-          trapdoor: "#00ff3a",
-          campfire: "orange",
-          shop: "#ffd700",
-          unknown: "white",
-          falseWallA: "#0a0",
-          falseWallB: "#070",
-        },
-        enemies: {
-          rat: "#bdbdbd",
-          goblin: "#00ff3a",
-          bat: "#a055a0",
-          skeleton: "#ffffff",
-          orc: "#8b4513",
-        },
-        loot: {
-          health: "#ff3b3b",
-          strength: "#ffe600",
-          toughness: "#cfcfcf",
-          speed: "#00ffff",
-          invisibility: "#8888ff",
-          explosive: "#ff8800",
-          food: "#ffd6a6",
-        },
-        traps: {
-          fire: "orange",
-          poison: "lime",
-          spike: "silver",
-          shock: "yellow",
-          unknown: "orange",
-        },
-        damage: { player: "#00ff00", crit: "#ffff00", enemy: "#ff0000" },
-        log: {
-          player: "lime",
-          enemy: "red",
-          loot: "cyan",
-          block: "gray",
-          death: "orange",
-          floor: "violet",
-          danger: "darkred",
-          info: "white",
-        },
-      },
-      highContrast: {
-        ui: { bg: "#000000", fg: "#ffffff", accent: "#ffffff" },
-        map: {
-          player: "#00ffff",
-          wall: "#ffffff",
-          floor: "#9a9a9a",
-          fogWall: "#ffffff",
-          fogFloor: "#666",
-          mouse: "#ffffff",
-          trapVisible: "#ff00ff",
-          hiddenTrapFlash: "#ff00ff",
-          trapdoor: "#00ff00",
-          campfire: "#ff9900",
-          shop: "#ffff00",
-          unknown: "#ffffff",
-          falseWallA: "#00ff00",
-          falseWallB: "#00aa00",
-        },
-        enemies: {
-          rat: "#ffffff",
-          goblin: "#00ffff",
-          bat: "#ff00ff",
-          skeleton: "#ffff00",
-          orc: "#ff6600",
-        },
-        loot: {
-          health: "#ff0000",
-          strength: "#ffff00",
-          toughness: "#ffffff",
-          speed: "#00ffff",
-          invisibility: "#ff00ff",
-          explosive: "#ff6600",
-          food: "#ffffff",
-        },
-        traps: {
-          fire: "#ff6600",
-          poison: "#00ff00",
-          spike: "#ffffff",
-          shock: "#ffff00",
-          unknown: "#ff00ff",
-        },
-        damage: { player: "#00ff00", crit: "#ffff00", enemy: "#ff0000" },
-        log: {
-          player: "#00ff00",
-          enemy: "#ff4444",
-          loot: "#00ffff",
-          block: "#bbbbbb",
-          death: "#ff9900",
-          floor: "#ffffff",
-          danger: "#ff0000",
-          info: "#ffffff",
-        },
-      },
-      // Okabe-Ito inspired, better separation for common colorblindness.
-      colorblind: {
-        ui: { bg: "#000000", fg: "#f0f0f0", accent: "#56b4e9" },
-        map: {
-          player: "#56b4e9", // sky blue
-          wall: "#f0f0f0",
-          floor: "#8a8a8a",
-          fogWall: "#f0f0f0",
-          fogFloor: "#666",
-          mouse: "#f0f0f0",
-          trapVisible: "#d55e00", // vermillion
-          hiddenTrapFlash: "#d55e00",
-          trapdoor: "#009e73", // bluish green
-          campfire: "#e69f00", // orange
-          shop: "#f0e442", // yellow
-          unknown: "#f0f0f0",
-          falseWallA: "#009e73",
-          falseWallB: "#007f5f",
-        },
-        enemies: {
-          rat: "#f0f0f0",
-          goblin: "#e69f00",
-          bat: "#cc79a7",
-          skeleton: "#f0e442",
-          orc: "#d55e00",
-        },
-        loot: {
-          health: "#d55e00",
-          strength: "#e69f00",
-          toughness: "#f0f0f0",
-          speed: "#56b4e9",
-          invisibility: "#cc79a7",
-          explosive: "#0072b2",
-          food: "#f0f0f0",
-        },
-        traps: {
-          fire: "#d55e00",
-          poison: "#009e73",
-          spike: "#f0f0f0",
-          shock: "#f0e442",
-          unknown: "#d55e00",
-        },
-        damage: { player: "#009e73", crit: "#f0e442", enemy: "#d55e00" },
-        log: {
-          player: "#009e73",
-          enemy: "#d55e00",
-          loot: "#56b4e9",
-          block: "#bbbbbb",
-          death: "#e69f00",
-          floor: "#56b4e9",
-          danger: "#d55e00",
-          info: "#f0f0f0",
-        },
-      },
-    };
-
-    const name = getPaletteName();
-    return palettes[name] || palettes.default;
-  }
-
-  function applyPaletteToCss() {
-    const p = getPalette();
-    const root = document.documentElement;
-    root.style.setProperty("--bg", p.ui.bg);
-    root.style.setProperty("--fg", p.ui.fg);
-    root.style.setProperty("--accent", p.ui.accent);
-  }
-
-  function getEnemyColor(e) {
-    const p = getPalette();
-    const name = String(e?.name || "").toLowerCase();
-    if (name.includes("rat")) return p.enemies.rat;
-    if (name.includes("goblin")) return p.enemies.goblin;
-    if (name.includes("bat")) return p.enemies.bat;
-    if (name.includes("skeleton")) return p.enemies.skeleton;
-    if (name.includes("orc")) return p.enemies.orc;
-    return e?.color || p.map.unknown;
-  }
-
-  function getTrapColor(trap) {
-    const p = getPalette();
-    const t = String(trap?.type || "").toLowerCase();
-    return p.traps[t] || p.traps.unknown;
-  }
-
-  function getLootColor(loot) {
-    const p = getPalette();
-    const effect = String(loot?.effect || "").toLowerCase();
-    if (effect === "fullheal") return p.loot.health;
-    if (effect === "damageboost") return p.loot.strength;
-    if (effect === "toughnessboost") return p.loot.toughness;
-    if (effect === "speed") return p.loot.speed;
-    if (effect === "invisibility") return p.loot.invisibility;
-    if (effect === "explosive") return p.loot.explosive;
-    if (effect === "food") return p.loot.food;
-    return loot?.color || p.map.unknown;
-  }
-
-  function vibrate(pattern) {
-    if (!settings?.haptics) return;
-    const vib = navigator?.vibrate;
-    if (typeof vib !== "function") return;
-    try {
-      vib(pattern);
-    } catch {
-      // ignore
-    }
-  }
-
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
   function getViewRadius() {
@@ -3567,6 +3342,233 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /* ===================== INIT ===================== */
+
+  /* ===================== ACCESSIBILITY / UX HELPERS ===================== */
+
+  function getPaletteName() {
+    const v = String(settings?.paletteMode || "default");
+    if (v === "highContrast") return "highContrast";
+    if (v === "colorblind") return "colorblind";
+    return "default";
+  }
+
+  function getPalette() {
+    // Default colors roughly match the current look.
+    const palettes = {
+      default: {
+        ui: { bg: "#000000", fg: "#00ff00", accent: "#00ffff" },
+        map: {
+          player: "cyan",
+          wall: "lime",
+          floor: "#555",
+          fogWall: "lime",
+          fogFloor: "#555",
+          mouse: "#eee",
+          trapVisible: "orange",
+          hiddenTrapFlash: "orange",
+          trapdoor: "#00ff3a",
+          campfire: "orange",
+          shop: "#ffd700",
+          unknown: "white",
+          falseWallA: "#0a0",
+          falseWallB: "#070",
+        },
+        enemies: {
+          rat: "#bdbdbd",
+          goblin: "#00ff3a",
+          bat: "#a055a0",
+          skeleton: "#ffffff",
+          orc: "#8b4513",
+        },
+        loot: {
+          health: "#ff3b3b",
+          strength: "#ffe600",
+          toughness: "#cfcfcf",
+          speed: "#00ffff",
+          invisibility: "#8888ff",
+          explosive: "#ff8800",
+          food: "#ffd6a6",
+        },
+        traps: {
+          fire: "orange",
+          poison: "lime",
+          spike: "silver",
+          shock: "yellow",
+          unknown: "orange",
+        },
+        damage: { player: "#00ff00", crit: "#ffff00", enemy: "#ff0000" },
+        log: {
+          player: "lime",
+          enemy: "red",
+          loot: "cyan",
+          block: "gray",
+          death: "orange",
+          floor: "violet",
+          danger: "darkred",
+          info: "white",
+        },
+      },
+      highContrast: {
+        ui: { bg: "#000000", fg: "#ffffff", accent: "#ffffff" },
+        map: {
+          player: "#00ffff",
+          wall: "#ffffff",
+          floor: "#9a9a9a",
+          fogWall: "#ffffff",
+          fogFloor: "#666",
+          mouse: "#ffffff",
+          trapVisible: "#ff00ff",
+          hiddenTrapFlash: "#ff00ff",
+          trapdoor: "#00ff00",
+          campfire: "#ff9900",
+          shop: "#ffff00",
+          unknown: "#ffffff",
+          falseWallA: "#00ff00",
+          falseWallB: "#00aa00",
+        },
+        enemies: {
+          rat: "#ffffff",
+          goblin: "#00ffff",
+          bat: "#ff00ff",
+          skeleton: "#ffff00",
+          orc: "#ff6600",
+        },
+        loot: {
+          health: "#ff0000",
+          strength: "#ffff00",
+          toughness: "#ffffff",
+          speed: "#00ffff",
+          invisibility: "#ff00ff",
+          explosive: "#ff6600",
+          food: "#ffffff",
+        },
+        traps: {
+          fire: "#ff6600",
+          poison: "#00ff00",
+          spike: "#ffffff",
+          shock: "#ffff00",
+          unknown: "#ff00ff",
+        },
+        damage: { player: "#00ff00", crit: "#ffff00", enemy: "#ff0000" },
+        log: {
+          player: "#00ff00",
+          enemy: "#ff4444",
+          loot: "#00ffff",
+          block: "#bbbbbb",
+          death: "#ff9900",
+          floor: "#ffffff",
+          danger: "#ff0000",
+          info: "#ffffff",
+        },
+      },
+      // Okabe-Ito inspired, better separation for common colorblindness.
+      colorblind: {
+        ui: { bg: "#000000", fg: "#f0f0f0", accent: "#56b4e9" },
+        map: {
+          player: "#56b4e9", // sky blue
+          wall: "#f0f0f0",
+          floor: "#8a8a8a",
+          fogWall: "#f0f0f0",
+          fogFloor: "#666",
+          mouse: "#f0f0f0",
+          trapVisible: "#d55e00", // vermillion
+          hiddenTrapFlash: "#d55e00",
+          trapdoor: "#009e73", // bluish green
+          campfire: "#e69f00", // orange
+          shop: "#f0e442", // yellow
+          unknown: "#f0f0f0",
+          falseWallA: "#009e73",
+          falseWallB: "#007f5f",
+        },
+        enemies: {
+          rat: "#f0f0f0",
+          goblin: "#e69f00",
+          bat: "#cc79a7",
+          skeleton: "#f0e442",
+          orc: "#d55e00",
+        },
+        loot: {
+          health: "#d55e00",
+          strength: "#e69f00",
+          toughness: "#f0f0f0",
+          speed: "#56b4e9",
+          invisibility: "#cc79a7",
+          explosive: "#0072b2",
+          food: "#f0f0f0",
+        },
+        traps: {
+          fire: "#d55e00",
+          poison: "#009e73",
+          spike: "#f0f0f0",
+          shock: "#f0e442",
+          unknown: "#d55e00",
+        },
+        damage: { player: "#009e73", crit: "#f0e442", enemy: "#d55e00" },
+        log: {
+          player: "#009e73",
+          enemy: "#d55e00",
+          loot: "#56b4e9",
+          block: "#bbbbbb",
+          death: "#e69f00",
+          floor: "#56b4e9",
+          danger: "#d55e00",
+          info: "#f0f0f0",
+        },
+      },
+    };
+
+    const name = getPaletteName();
+    return palettes[name] || palettes.default;
+  }
+
+  function applyPaletteToCss() {
+    const p = getPalette();
+    const root = document.documentElement;
+    root.style.setProperty("--bg", p.ui.bg);
+    root.style.setProperty("--fg", p.ui.fg);
+    root.style.setProperty("--accent", p.ui.accent);
+  }
+
+  function getEnemyColor(e) {
+    const p = getPalette();
+    const name = String(e?.name || "").toLowerCase();
+    if (name.includes("rat")) return p.enemies.rat;
+    if (name.includes("goblin")) return p.enemies.goblin;
+    if (name.includes("bat")) return p.enemies.bat;
+    if (name.includes("skeleton")) return p.enemies.skeleton;
+    if (name.includes("orc")) return p.enemies.orc;
+    return e?.color || p.map.unknown;
+  }
+
+  function getTrapColor(trap) {
+    const p = getPalette();
+    const t = String(trap?.type || "").toLowerCase();
+    return p.traps[t] || p.traps.unknown;
+  }
+
+  function getLootColor(loot) {
+    const p = getPalette();
+    const effect = String(loot?.effect || "").toLowerCase();
+    if (effect === "fullheal") return p.loot.health;
+    if (effect === "damageboost") return p.loot.strength;
+    if (effect === "toughnessboost") return p.loot.toughness;
+    if (effect === "speed") return p.loot.speed;
+    if (effect === "invisibility") return p.loot.invisibility;
+    if (effect === "explosive") return p.loot.explosive;
+    if (effect === "food") return p.loot.food;
+    return loot?.color || p.map.unknown;
+  }
+
+  function vibrate(pattern) {
+    if (!settings?.haptics) return;
+    const vib = navigator?.vibrate;
+    if (typeof vib !== "function") return;
+    try {
+      vib(pattern);
+    } catch {
+      // ignore
+    }
+  }
 
   // Load settings from localStorage
   try {
