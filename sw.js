@@ -1,13 +1,23 @@
 /* Simple offline cache for the game (PWA). */
 
-const CACHE_NAME = "dungeon-roguelike-v1";
+const CACHE_NAME = "dungeon-roguelike-v2";
 
 const PRECACHE_URLS = [
   "./",
   "./index.html",
   "./style.css",
-  "./script.js",
   "./investigation_descriptions.js",
+  "./js/version.js",
+  "./js/state.js",
+  "./js/data.js",
+  "./js/helpers.js",
+  "./js/mapgen.js",
+  "./js/enemy_ai.js",
+  "./js/player.js",
+  "./js/inventory.js",
+  "./js/draw.js",
+  "./js/inputs.js",
+  "./js/init.js",
   "./manifest.webmanifest",
   "./icon.svg",
   "./icon-maskable.svg",

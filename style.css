@@ -428,6 +428,14 @@ body.menu-open #liveLog {
   text-shadow: 0 0 10px var(--accent);
 }
 
+.menu-version {
+  margin-top: -18px;
+  margin-bottom: 10px;
+  text-align: center;
+  font-size: clamp(12px, 3.5vw, 16px);
+  color: rgba(0, 255, 255, 0.75);
+}
+
 .menu-buttons {
   width: 100%;
   display: flex;
