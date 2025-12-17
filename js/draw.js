@@ -623,18 +623,6 @@ function renderMenuHtml() {
           Loot x${Number(settings.lootMult || 1).toFixed(2)} • Hazards x${Number(settings.hazardMult || 1).toFixed(2)}
         </div>
 
-        <div style="margin-top: 10px; text-align:center; opacity:0.85;">Fine-tune (sets preset to Custom)</div>
-        <div style="display:flex; gap: 8px; flex-wrap: wrap; justify-content:center; margin-top:6px;">
-          <button type="button" data-diff-adjust="enemyHpMult:-0.05" style="padding:6px 10px; border-radius:10px;">HP-</button>
-          <button type="button" data-diff-adjust="enemyHpMult:+0.05" style="padding:6px 10px; border-radius:10px;">HP+</button>
-          <button type="button" data-diff-adjust="enemyDmgMult:-0.05" style="padding:6px 10px; border-radius:10px;">DMG-</button>
-          <button type="button" data-diff-adjust="enemyDmgMult:+0.05" style="padding:6px 10px; border-radius:10px;">DMG+</button>
-          <button type="button" data-diff-adjust="lootMult:-0.05" style="padding:6px 10px; border-radius:10px;">Loot-</button>
-          <button type="button" data-diff-adjust="lootMult:+0.05" style="padding:6px 10px; border-radius:10px;">Loot+</button>
-          <button type="button" data-diff-adjust="hazardMult:-0.05" style="padding:6px 10px; border-radius:10px;">Haz-</button>
-          <button type="button" data-diff-adjust="hazardMult:+0.05" style="padding:6px 10px; border-radius:10px;">Haz+</button>
-        </div>
-
       </div>
       <div style="margin-top: 15px;">
         <button type="button" data-action="save-game" class="menu-button" style="width: 100%; margin: 5px 0;">Save Game</button>

@@ -730,27 +730,6 @@ function setInventorySort(mode) {
 window.setInventorySort = setInventorySort;
 
 
-function adjustDifficulty(key, delta) {
-  const k = String(key || "");
-  const d = Number(delta || 0);
-  if (!Number.isFinite(d) || !k) return;
-  const allowed = new Set(["enemyHpMult", "enemyDmgMult", "lootMult", "hazardMult", "propDensity", "screenShakeIntensity"]);
-  if (!allowed.has(k)) return;
-  settings.difficultyPreset = "custom";
-  const cur = Number(settings[k] || 1);
-  const next = clamp(cur + d, 0, 3);
-  settings[k] = k === "screenShakeIntensity" ? clamp(next, 0.3, 2) : next;
-  window.gameSettings = settings;
-  try {
-    localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
-  } catch {
-    // ignore
-  }
-  draw();
-}
-window.adjustDifficulty = adjustDifficulty;
-
-
 function resetRunStats() {
   runStats = {
     startedAt: Date.now(),
@@ -849,13 +828,9 @@ function flashGame(filterCss = "brightness(1.35)") {
 const DIFFICULTY_PRESETS = Object.freeze({
 
   // Risk/reward: easier runs yield less loot.
-  easy: { enemyHpMult: 0.85, enemyDmgMult: 0.8, lootMult: 0.85, hazardMult: 0.85, propDensity: 0.9 },
+  easy: { enemyHpMult: 0.85, enemyDmgMult: 0.8, lootMult: 0.75, hazardMult: 0.85, propDensity: 0.9 },
   normal: { enemyHpMult: 1, enemyDmgMult: 1, lootMult: 1, hazardMult: 1, propDensity: 1 },
   hard: { enemyHpMult: 1.2, enemyDmgMult: 1.25, lootMult: 1.15, hazardMult: 1.25, propDensity: 1.1 },
-
-  easy: { enemyHpMult: 0.85, enemyDmgMult: 0.8, lootMult: 1.15, hazardMult: 0.85, propDensity: 1.1 },
-  normal: { enemyHpMult: 1, enemyDmgMult: 1, lootMult: 1, hazardMult: 1, propDensity: 1 },
-  hard: { enemyHpMult: 1.2, enemyDmgMult: 1.25, lootMult: 0.95, hazardMult: 1.25, propDensity: 1.1 },
 
 });
 
@@ -960,7 +935,6 @@ function ensureBountyOffers() {
     mk({ kind: "kill", target: "Rat", goal: 8, title: "Pest Control", desc: "Kill 8 Rats", rewardGold: 45, rewardMat: { matId: "iron", qty: 1 } }),
     mk({ kind: "kill", target: "Goblin", goal: 6, title: "Green Menace", desc: "Kill 6 Goblins", rewardGold: 70, rewardMat: { matId: "leather", qty: 2 } }),
     mk({ kind: "collectMat", target: "iron", goal: 4, title: "Ore Run", desc: "Collect 4 Iron Ore", rewardGold: 55, rewardMat: { matId: "essence", qty: 1 } }),
-    mk({ kind: "floor", target: "depth", goal: 5, title: "Deep Dive", desc: "Reach Floor 5", rewardGold: 90, rewardTrinketChance: 0.25 }),
   ];
   shuffleInPlace(offers);
   player.bounties.offers = offers.slice(0, 3);
@@ -1599,29 +1573,6 @@ function buyShopItem(shopIndex) {
   addLog(`Bought ${baseItem.name}`, "loot");
   vibrate(12);
   draw();
-}
-
-function getFloorRewardChoices() {
-  const healthPotion = POTIONS.find((p) => p.name === "Health Potion") || POTIONS[0];
-  const pool = [
-    { id: "maxHp", label: "+1 Max HP", desc: "Also heal +1 hp", apply: () => { player.maxHp += 1; player.hp = Math.min(player.maxHp, player.hp + 1); } },
-    { id: "dmg", label: "+1 Damage", desc: "Hit harder", apply: () => { player.dmg += 1; } },
-    { id: "tough", label: "+1 Toughness", desc: "Take less damage", apply: () => { player.toughness += 1; } },
-    { id: "maxHunger", label: "+1 Max Hunger", desc: "More sustain", apply: () => { player.maxHunger += 1; player.hunger = Math.min(player.maxHunger, player.hunger + 1); } },
-    { id: "rations", label: "+3 Hunger", desc: "Immediate food", apply: () => { player.hunger = Math.min(player.maxHunger, player.hunger + 3); } },
-    { id: "potion", label: "Random Potion", desc: "Add to inventory", apply: () => { addItemToInventory(POTIONS[rand(0, POTIONS.length - 1)]); } },
-    { id: "healPotion", label: "Health Potion", desc: "Add to inventory", apply: () => { addItemToInventory(healthPotion); } },
-  ];
-
-  const shuffled = shuffleInPlace(pool.slice());
-  return shuffled.slice(0, 3);
-}
-
-function applyFloorReward(reward) {
-  if (!reward || typeof reward.apply !== "function") return;
-  reward.apply();
-  addLog(`Floor reward: ${reward.label}`, "loot");
-  playSound?.("loot");
 }
 
 function showFloorTransition() {
@@ -2549,19 +2500,15 @@ function isPlayerWalkable(x, y) {
   // Hidden area tiles block movement until revealed, except the entrance false-wall tiles.
   if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k) && !hiddenArea.falseWalls?.has(k)) return false;
 
-
   // Enemies block movement.
-
-  const tile = tileAtKey(k);
-  if (!isWalkableTile(tile)) return false;
-
   if (enemies.some((e) => e.x === x && e.y === y)) return false;
 
-  // Props are solid until smashed.
   const tile = tileAtKey(k);
+
+  // Props are solid until smashed.
   if (tile === TILE.CRATE || tile === TILE.BARREL) return false;
 
-  // Allow stepping onto loot glyphs (they are stored as map chars, not floor).
+  // Allow stepping onto loot glyphs (loot is stored in *_loot; the visible glyph is not walkable terrain).
   if (lootAtKey(k)) return true;
 
   // Otherwise require walkable terrain/special tiles.
