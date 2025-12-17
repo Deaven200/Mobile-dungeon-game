@@ -2,6 +2,17 @@
 
 This is a mobile-friendly ASCII dungeon roguelike that runs in the browser, and can also be installed to your home screen as an app (PWA).
 
+## Play / Install (shareable links)
+
+- **Play in browser (GitHub Pages)**: `https://<user>.github.io/<repo>/`
+- **Download as a ZIP**: `https://github.com/<user>/<repo>/archive/refs/heads/main.zip`
+
+Replace `<user>` and `<repo>` with your GitHub username + repository name once you publish it.
+
+## What is the game?
+
+You explore a procedurally generated ASCII dungeon, fight enemies by moving into them, find potions/food, avoid traps (some are hidden), and descend via the trapdoor to progress floors. It’s designed primarily for mobile: tap-to-move pathfinding, pinch-to-zoom, and a pause/menu button.
+
 ## How to run
 
 - Open `index.html` in a browser, or serve this folder with any static file server.
