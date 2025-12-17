@@ -23,10 +23,62 @@ function handlePlayerDeathIfNeeded() {
     }
   }
 
-  // Return to main menu after a brief delay
-  setTimeout(() => {
-    returnToMainMenu();
-  }, 2000);
+  // Death card (what killed you) + immediate run end.
+  try {
+    runStats.endedAt = Date.now();
+  } catch {
+    // ignore
+  }
+
+  const src = lastDamageSource;
+  const killerLine = src
+    ? `<div style="margin: 6px 0; text-align:center;">
+         <div style="opacity:0.9;">Killed by</div>
+         <div style="font-weight:700; color: var(--accent);">${escapeHtml(src.name)}</div>
+         <div style="opacity:0.8;">(${escapeHtml(src.kind)} • ${Number(src.amount || 0)})</div>
+       </div>`
+    : `<div style="margin: 6px 0; text-align:center; opacity:0.9;">Cause of death unknown</div>`;
+
+  const durSec =
+    runStats?.startedAt ? Math.max(0, Math.floor((Date.now() - Number(runStats.startedAt || 0)) / 1000)) : 0;
+  const timeLine = durSec ? `${Math.floor(durSec / 60)}m ${durSec % 60}s` : "—";
+
+  showPromptOverlay(
+    "You died",
+    `
+      ${killerLine}
+      <div style="text-align:center; opacity:0.9; margin-top: 10px;">
+        Floor: ${floor}<br>
+        Score: ${player.score || 0}<br>
+        Kills: ${player.kills || 0}<br>
+        Time: ${escapeHtml(timeLine)}
+      </div>
+    `,
+    [
+      {
+        id: "deathRestartBtn",
+        label: "New Run",
+        onClick: () => {
+          const transitionEl = document.getElementById("floorTransition");
+          if (transitionEl) transitionEl.style.display = "none";
+          gamePaused = false;
+          // Go back through the normal main-menu flow for a clean reset.
+          returnToMainMenu();
+          setTimeout(() => startGame(), 30);
+        },
+      },
+      {
+        id: "deathMenuBtn",
+        label: "Main Menu",
+        subtle: true,
+        onClick: () => {
+          const transitionEl = document.getElementById("floorTransition");
+          if (transitionEl) transitionEl.style.display = "none";
+          returnToMainMenu();
+        },
+      },
+    ],
+  );
   return true;
 }
 
@@ -154,9 +206,23 @@ function move(dx, dy) {
       dealt = Math.floor(dealt * 2);
       addLog(`CRITICAL HIT! ${dealt} damage to ${(enemy?.name || "enemy").toLowerCase()}!`, "player");
       playSound?.("crit");
+      try {
+        shakeScreen?.(0.55, 110);
+        flashGame?.("brightness(1.18) contrast(1.15) saturate(1.4)");
+      } catch {
+        // ignore
+      }
     } else {
       addLog(`You hit ${(enemy?.name || "enemy").toLowerCase()} for ${dealt}`, dealt ? "player" : "block");
       if (dealt > 0) playSound?.("hit");
+      if (dealt > 0) {
+        try {
+          shakeScreen?.(0.25, 80);
+          flashGame?.("brightness(1.08) saturate(1.12)");
+        } catch {
+          // ignore
+        }
+      }
     }
     
     enemy.hp -= dealt;

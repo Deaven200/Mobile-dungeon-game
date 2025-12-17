@@ -7,6 +7,8 @@ let gamePaused = false;
 let investigateArmed = false;
 let cookingAtCampfire = false;
 let atShop = false;
+let atBlacksmith = false;
+let atBountyBoard = false;
 let inMainMenu = true;
 let gameStarted = false;
 // Seeded RNG so "true saves" can restore deterministically.
@@ -20,6 +22,17 @@ let settings = {
   haptics: true,
   confirmDescend: true,
   permadeath: true,
+  // Combat feedback
+  screenShake: true,
+  screenShakeIntensity: 1, // 0.5..2
+  hitFlash: true,
+  // Difficulty
+  difficultyPreset: "normal", // easy | normal | hard | custom
+  enemyHpMult: 1,
+  enemyDmgMult: 1,
+  lootMult: 1,
+  hazardMult: 1,
+  propDensity: 1,
   // Accessibility
   largeText: false,
   highContrast: false,
@@ -29,6 +42,25 @@ let settings = {
 };
 let floorStats = { enemiesKilled: 0, itemsFound: 0, trapsTriggered: 0, damageTaken: 0, damageDealt: 0 };
 let hiddenTrapCount = 0;
+
+// Run-wide totals (reset each new run/dive).
+let runStats = {
+  startedAt: 0,
+  endedAt: 0,
+  floorsReached: 0,
+  enemiesKilled: 0,
+  itemsFound: 0,
+  trapsTriggered: 0,
+  damageDealt: 0,
+  damageTaken: 0,
+  goldEarned: 0,
+  propsDestroyed: 0,
+  bestWeaponName: "",
+  bestWeaponScore: 0,
+};
+
+// Last damage source for death card.
+let lastDamageSource = null; // { kind, name, amount, floor, time, extra? }
 
 // Sight model:
 // - FULL_SIGHT_RADIUS: you can see everything (enemies, items, traps, etc.)
@@ -72,6 +104,14 @@ let player = {
   inventory: [],
   maxInventory: 10,
   hands: { main: null, off: null },
+  // 4-slot quick hotbar (stores item IDs (iid) that point into inventory items).
+  hotbar: [null, null, null, null],
+  // 2 trinket slots (stores equipped trinket item objects).
+  trinkets: { a: null, b: null },
+  // Codex discovery tracking.
+  codex: { enemies: {}, items: {}, trinkets: {}, materials: {}, statuses: {} },
+  // Inventory UI preferences.
+  inventorySort: "type",
   hunger: 10,
   maxHunger: 10,
   kills: 0,

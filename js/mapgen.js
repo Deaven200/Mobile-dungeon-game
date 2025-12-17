@@ -904,7 +904,9 @@ function triggerTrapAtEntity(x, y, target, targetKind = "player") {
   if (!trap) return false;
 
   const toughness = Number(target?.toughness || 0);
-  const dmg = Math.max(0, Number(trap.dmg || 0) - toughness);
+  const raw = Math.max(0, Number(trap.dmg || 0) - toughness);
+  const mult = targetKind === "player" ? Math.max(0, Number(settings?.hazardMult || 1)) : 1;
+  const dmg = Math.max(0, Math.floor(raw * mult));
 
   if (targetKind === "player") {
     const prefix = trap.hidden ? "A hidden trap springs!" : "Trap!";
@@ -917,6 +919,21 @@ function triggerTrapAtEntity(x, y, target, targetKind = "player") {
   }
 
   if (target && typeof target.hp === "number") target.hp -= dmg;
+  if (targetKind === "player" && dmg > 0) {
+    try {
+      setLastDamageSource({
+        kind: "trap",
+        name: trap.hidden ? `Hidden ${trap.type} trap` : `${trap.type} trap`,
+        amount: dmg,
+        floor,
+        extra: { trapType: trap.type, hidden: !!trap.hidden },
+      });
+      shakeScreen?.(0.75, 140);
+      flashGame?.("brightness(1.1) saturate(1.35) hue-rotate(-10deg)");
+    } catch {
+      // ignore
+    }
+  }
   if (trap.status?.kind === "burning") {
     addBurning(target, trap.status.turns ?? 3, trap.status.dmgPerTurn ?? 1);
     if (targetKind === "player") {

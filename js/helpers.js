@@ -449,6 +449,250 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
+/* ===================== META SYSTEMS (Hotbar / Codex / Run Stats / Feedback) ===================== */
+
+let _itemIdCounter = 1;
+function newItemId() {
+  // Short, stable-enough id for a run + saves.
+  return `${Date.now().toString(36)}_${(_itemIdCounter++).toString(36)}`;
+}
+
+function ensureItemId(it) {
+  if (!it || typeof it !== "object") return it;
+  if (!it.iid) it.iid = newItemId();
+  return it;
+}
+
+function normalizePlayerMeta() {
+  if (!player || typeof player !== "object") return;
+  if (!Array.isArray(player.inventory)) player.inventory = [];
+  for (const it of player.inventory) ensureItemId(it);
+
+  if (!Array.isArray(player.hotbar)) player.hotbar = [null, null, null, null];
+  if (player.hotbar.length !== 4) player.hotbar = [player.hotbar[0] ?? null, player.hotbar[1] ?? null, player.hotbar[2] ?? null, player.hotbar[3] ?? null];
+
+  if (!player.trinkets || typeof player.trinkets !== "object") player.trinkets = { a: null, b: null };
+  if (!("a" in player.trinkets)) player.trinkets.a = null;
+  if (!("b" in player.trinkets)) player.trinkets.b = null;
+
+  if (!player.codex || typeof player.codex !== "object") player.codex = { enemies: {}, items: {}, trinkets: {}, materials: {}, statuses: {} };
+  for (const k of ["enemies", "items", "trinkets", "materials", "statuses"]) {
+    if (!player.codex[k] || typeof player.codex[k] !== "object") player.codex[k] = {};
+  }
+
+  if (!player.inventorySort) player.inventorySort = "type";
+}
+
+function findInventoryIndexById(iid) {
+  if (!iid) return -1;
+  const inv = player.inventory || [];
+  for (let i = 0; i < inv.length; i++) {
+    if (inv[i]?.iid === iid) return i;
+  }
+  return -1;
+}
+
+function syncHotbar() {
+  normalizePlayerMeta();
+  for (let s = 0; s < 4; s++) {
+    const iid = player.hotbar[s];
+    if (!iid) continue;
+    if (findInventoryIndexById(iid) < 0) player.hotbar[s] = null;
+  }
+}
+
+function assignHotbarSlot(slotIdx, invIndex) {
+  const s = Number(slotIdx);
+  const idx = Number(invIndex);
+  if (!Number.isFinite(s) || s < 0 || s > 3) return;
+  if (!Number.isFinite(idx) || idx < 0) return;
+  const it = player.inventory?.[idx];
+  if (!it) return;
+  ensureItemId(it);
+  player.hotbar[s] = it.iid;
+  playSound?.("menu");
+  vibrate(8);
+  draw();
+}
+
+function clearHotbarSlot(slotIdx) {
+  const s = Number(slotIdx);
+  if (!Number.isFinite(s) || s < 0 || s > 3) return;
+  player.hotbar[s] = null;
+  playSound?.("menu");
+  draw();
+}
+
+function useHotbarSlot(slotIdx) {
+  if (gamePaused || menuOpen) return;
+  syncHotbar();
+  const s = Number(slotIdx);
+  if (!Number.isFinite(s) || s < 0 || s > 3) return;
+  const iid = player.hotbar[s];
+  if (!iid) {
+    addLog("Hotbar slot empty", "info");
+    playSound?.("menu");
+    return;
+  }
+  const invIdx = findInventoryIndexById(iid);
+  if (invIdx < 0) {
+    player.hotbar[s] = null;
+    return;
+  }
+  const it = player.inventory?.[invIdx];
+  const eff = String(it?.effect || "").toLowerCase();
+  if (eff === "weapon") {
+    equipToHand?.("main", invIdx);
+    return;
+  }
+  useInventoryItem?.(invIdx);
+}
+
+function codexInc(section, key, n = 1) {
+  normalizePlayerMeta();
+  const s = String(section || "");
+  const k = String(key || "");
+  if (!s || !k) return;
+  if (!player.codex[s]) player.codex[s] = {};
+  player.codex[s][k] = Math.max(0, Number(player.codex[s][k] || 0) + Number(n || 1));
+}
+
+function recordCodexEnemy(name) {
+  const n = String(name || "").trim();
+  if (!n) return;
+  codexInc("enemies", n, 0); // ensure exists
+}
+
+function recordCodexItem(it) {
+  if (!it) return;
+  const name = String(it?.name || "").trim() || "Unknown Item";
+  const eff = String(it?.effect || "").toLowerCase();
+  codexInc("items", name, 1);
+  if (eff === "trinket") codexInc("trinkets", name, 1);
+  if (eff === "material") codexInc("materials", name, 1);
+}
+
+function recordCodexStatus(kind) {
+  const k = String(kind || "").trim();
+  if (!k) return;
+  codexInc("statuses", k, 0);
+}
+
+function resetRunStats() {
+  runStats = {
+    startedAt: Date.now(),
+    endedAt: 0,
+    floorsReached: 0,
+    enemiesKilled: 0,
+    itemsFound: 0,
+    trapsTriggered: 0,
+    damageDealt: 0,
+    damageTaken: 0,
+    goldEarned: 0,
+    propsDestroyed: 0,
+    bestWeaponName: "",
+    bestWeaponScore: 0,
+  };
+}
+
+function noteBestWeaponCandidate(it) {
+  if (!it || String(it.effect || "") !== "weapon") return;
+  const maxDmg = Math.max(1, Math.floor(Number(it.maxDamage || 1)));
+  const lvl = Math.max(1, Math.floor(Number(it.level || 1)));
+  const rar = typeof getRarity === "function" ? getRarity(it.rarity) : null;
+  const mult = Math.max(0.1, Number(rar?.mult || 1));
+  const score = Math.floor((maxDmg + lvl) * mult);
+  if (score > Number(runStats.bestWeaponScore || 0)) {
+    runStats.bestWeaponScore = score;
+    runStats.bestWeaponName = String(it.name || "");
+  }
+}
+
+function setLastDamageSource(src) {
+  if (!src || typeof src !== "object") return;
+  lastDamageSource = {
+    kind: String(src.kind || "unknown"),
+    name: String(src.name || "Unknown"),
+    amount: Math.max(0, Number(src.amount || 0)),
+    floor: Number.isFinite(Number(src.floor)) ? Number(src.floor) : floor,
+    time: Date.now(),
+    extra: src.extra || null,
+  };
+}
+
+let _shakeRaf = 0;
+function shakeScreen(intensity = 1, durationMs = 120) {
+  try {
+    if (!settings?.screenShake) return;
+    if (settings?.reducedMotion) return;
+    if (!gameEl) return;
+    const base = Math.max(0, Number(intensity || 1)) * Math.max(0.2, Number(settings.screenShakeIntensity || 1));
+    const dur = Math.max(40, Number(durationMs || 120));
+    const t0 = performance?.now?.() || Date.now();
+    if (_shakeRaf) cancelAnimationFrame(_shakeRaf);
+
+    const tick = () => {
+      const now = performance?.now?.() || Date.now();
+      const t = (now - t0) / dur;
+      if (t >= 1) {
+        gameEl.style.transform = "";
+        _shakeRaf = 0;
+        return;
+      }
+      // Ease out
+      const mag = base * (1 - t) * 3.0;
+      const dx = (rand01() * 2 - 1) * mag;
+      const dy = (rand01() * 2 - 1) * mag;
+      gameEl.style.transform = `translate(${dx}px, ${dy}px)`;
+      _shakeRaf = requestAnimationFrame(tick);
+    };
+    _shakeRaf = requestAnimationFrame(tick);
+  } catch {
+    // ignore
+  }
+}
+
+function flashGame(filterCss = "brightness(1.35)") {
+  try {
+    if (!settings?.hitFlash) return;
+    if (settings?.reducedFlashing) return;
+    if (!gameEl) return;
+    gameEl.style.transition = "filter 0.08s";
+    gameEl.style.filter = filterCss;
+    setTimeout(() => {
+      if (!gameEl) return;
+      gameEl.style.filter = "";
+      setTimeout(() => {
+        if (!gameEl) return;
+        gameEl.style.transition = "";
+      }, 90);
+    }, 90);
+  } catch {
+    // ignore
+  }
+}
+
+// Difficulty presets (applied to multipliers in settings).
+const DIFFICULTY_PRESETS = Object.freeze({
+  easy: { enemyHpMult: 0.85, enemyDmgMult: 0.8, lootMult: 1.15, hazardMult: 0.85, propDensity: 1.1 },
+  normal: { enemyHpMult: 1, enemyDmgMult: 1, lootMult: 1, hazardMult: 1, propDensity: 1 },
+  hard: { enemyHpMult: 1.2, enemyDmgMult: 1.25, lootMult: 0.95, hazardMult: 1.25, propDensity: 1.1 },
+});
+
+function applyDifficultyPreset(presetId) {
+  const id = String(presetId || settings?.difficultyPreset || "normal").toLowerCase();
+  const p = DIFFICULTY_PRESETS[id];
+  if (!p) return;
+  settings.difficultyPreset = id;
+  settings.enemyHpMult = p.enemyHpMult;
+  settings.enemyDmgMult = p.enemyDmgMult;
+  settings.lootMult = p.lootMult;
+  settings.hazardMult = p.hazardMult;
+  settings.propDensity = p.propDensity;
+  window.gameSettings = settings;
+}
+window.applyDifficultyPreset = applyDifficultyPreset;
+
 function renderLiveLog() {
   const logDiv = document.getElementById("liveLog");
   if (!logDiv) return;
@@ -609,6 +853,11 @@ function tickHunger(cost = 0) {
   if (player.hunger <= 0) {
     // Starvation: small damage each turn while empty.
     player.hp -= 0.01;
+    try {
+      setLastDamageSource({ kind: "starvation", name: "Starvation", amount: 0.01, floor });
+    } catch {
+      // ignore
+    }
     const now = Date.now();
     if (now - (lastStarveLogAt || 0) > 1200) {
       lastStarveLogAt = now;

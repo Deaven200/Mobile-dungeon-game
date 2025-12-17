@@ -23,6 +23,15 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (e) {
     // Use defaults
   }
+  
+  // Apply difficulty preset (unless user is on custom).
+  try {
+    if (settings?.difficultyPreset && settings.difficultyPreset !== "custom") {
+      window.applyDifficultyPreset?.(settings.difficultyPreset);
+    }
+  } catch {
+    // ignore
+  }
 
   // Apply accessibility classes early (before first draw).
   try {

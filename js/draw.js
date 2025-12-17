@@ -334,6 +334,14 @@ function renderMenuHtml() {
           Reduced Flashing
         </label>
         <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+          <input type="checkbox" ${settings.hitFlash ? "checked" : ""} data-setting="hitFlash" style="width: 20px; height: 20px;">
+          Hit Flash
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+          <input type="checkbox" ${settings.screenShake ? "checked" : ""} data-setting="screenShake" style="width: 20px; height: 20px;">
+          Screen Shake
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
           <input type="checkbox" ${settings.diagonalMelee ? "checked" : ""} data-setting="diagonalMelee" style="width: 20px; height: 20px;">
           Diagonal Melee
         </label>
