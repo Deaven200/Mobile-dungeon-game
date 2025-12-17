@@ -486,45 +486,44 @@ function renderMenuHtml() {
     const gear = player.gear || { weapon: 0, armor: 0, pack: 0 };
 
     const sellables = (player.inventory || [])
-      .map((it, idx) => ({ it, idx }))
-      .map(({ it, idx }) => ({
+      .map((it, idx) => ({
         it,
         idx,
         sell: typeof getItemSellValue === "function" ? Math.max(0, Math.floor(Number(getItemSellValue(it) || 0))) : 0,
-      }));
+      }))
+      .filter((x) => x.it);
 
-    const sellAllBtn =
-      sellables.some((v) => v.sell > 0)
-        ? `<button type="button" data-sell-all="1" class="menu-button" style="color:#ffd700;">Sell All<br><small>+${sellables.reduce(
-            (a, v) => a + v.sell,
-            0,
-          )} gold</small></button>`
-        : "";
-
-    const sellButtons = sellables
+    const sellTotal = sellables.reduce((a, v) => a + Math.max(0, Number(v.sell || 0)), 0);
+    const sellRows = sellables
       .filter((v) => v.sell > 0)
-      .map(
-        ({ it, idx, sell }) =>
-          `<button type="button" data-sell-item="${idx}" class="menu-button" style="color:${it?.color || "#ffd700"};${rarityOutlineCss(it)}${sell <= 0 ? "opacity:0.5;" : ""}">
-            ${escapeHtml(it?.name || "Item")}<br><small>+${sell} gold</small>
-          </button>`,
-      )
+      .sort((a, b) => b.sell - a.sell)
+      .map(({ it, idx, sell }) => {
+        return `<div class="shop-row">
+          <div class="shop-row-main">
+            <div class="shop-row-title" style="color:${it?.color || "#ffd700"};${rarityOutlineCss(it)}">${escapeHtml(it?.name || "Item")}</div>
+            <div class="shop-row-sub">Sell value: <b>${sell}g</b></div>
+          </div>
+          <button type="button" class="shop-action" data-sell-item="${idx}">Sell</button>
+        </div>`;
+      })
       .join("");
 
-    const upgradeBtn = (kind, label, desc) => {
-      const price = typeof getUpgradeCost === "function" ? getUpgradeCost(kind) : 999999;
-      const dim = gold < price ? "opacity:0.5;" : "";
-      return `<button type="button" data-buy-upgrade="${escapeHtml(kind)}" class="menu-button" style="color:var(--accent);${dim}" title="${escapeHtml(
-        desc,
-      )}">
-        ${escapeHtml(label)}<br><small>${price} gold</small>
-      </button>`;
+    const upgradeRow = (kind, title, desc) => {
+      const price = typeof getUpgradeCost === "function" ? Math.max(0, Number(getUpgradeCost(kind) || 0)) : 999999;
+      const can = gold >= price;
+      return `<div class="shop-row">
+        <div class="shop-row-main">
+          <div class="shop-row-title">${escapeHtml(title)}</div>
+          <div class="shop-row-sub">${escapeHtml(desc)} • <b>${price}g</b></div>
+        </div>
+        <button type="button" class="shop-action ${can ? "" : "is-disabled"}" data-buy-upgrade="${escapeHtml(kind)}" ${can ? "" : "aria-disabled=\"true\""}>Buy</button>
+      </div>`;
     };
 
     const upgradesHtml = [
-      upgradeBtn("weapon", `Weapon Lv ${Number(gear.weapon || 0)}`, "+1 damage"),
-      upgradeBtn("armor", `Armor Lv ${Number(gear.armor || 0)}`, "+1 toughness"),
-      upgradeBtn("pack", `Pack Lv ${Number(gear.pack || 0)}`, "+2 inventory slots"),
+      upgradeRow("weapon", `Weapon Upgrade (Lv ${Number(gear.weapon || 0)})`, "+1 damage"),
+      upgradeRow("armor", `Armor Upgrade (Lv ${Number(gear.armor || 0)})`, "+1 toughness"),
+      upgradeRow("pack", `Pack Upgrade (Lv ${Number(gear.pack || 0)})`, "+2 inventory slots"),
     ].join("");
 
     const potionItems = [
@@ -532,31 +531,57 @@ function renderMenuHtml() {
       ...POTIONS.slice(3).map((p, i) => ({ ...p, price: 70 + i * 20, shopIndex: i + 3 })),
     ];
 
-    const potionButtons = potionItems
+    const potionDesc = (p) => {
+      if (!p) return "";
+      if (p.effect === "fullHeal") return "Heal +1 Max HP";
+      if (p.effect === "damageBoost") return "+1 Damage";
+      if (p.effect === "toughnessBoost") return "+1 Toughness";
+      if (p.effect === "speed") return `Speed (${p.turns || 10} turns)`;
+      if (p.effect === "invisibility") return `Invisible (${p.turns || 5} turns)`;
+      if (p.effect === "explosive") return "AOE damage";
+      return "";
+    };
+
+    const potionsHtml = potionItems
       .map((item) => {
-        let desc = "";
-        if (item.effect === "fullHeal") desc = " (Heal +1 Max HP)";
-        else if (item.effect === "damageBoost") desc = " (+1 Damage)";
-        else if (item.effect === "toughnessBoost") desc = " (+1 Toughness)";
-        else if (item.effect === "speed") desc = ` (Speed ${item.turns || 10} turns)`;
-        else if (item.effect === "invisibility") desc = ` (Invisible ${item.turns || 5} turns)`;
-        else if (item.effect === "explosive") desc = " (AOE Damage)";
-        return `<button type="button" data-buy-item="${item.shopIndex}" class="menu-button" style="color:${item.color};${gold < item.price ? "opacity:0.5;" : ""}" title="${escapeHtml(
-          item.name + desc,
-        )}">
-          ${escapeHtml(item.name)}${desc ? `<small style="opacity:0.7;">${escapeHtml(desc)}</small>` : ""}<br><small>${item.price} gold</small>
-        </button>`;
+        const can = gold >= Number(item.price || 0);
+        const desc = potionDesc(item);
+        return `<div class="shop-row">
+          <div class="shop-row-main">
+            <div class="shop-row-title" style="color:${item.color};">${escapeHtml(item.name)}</div>
+            <div class="shop-row-sub">${escapeHtml(desc)} • <b>${Number(item.price || 0)}g</b></div>
+          </div>
+          <button type="button" class="shop-action ${can ? "" : "is-disabled"}" data-buy-item="${item.shopIndex}" ${can ? "" : "aria-disabled=\"true\""}>Buy</button>
+        </div>`;
       })
       .join("");
 
-    content = `<div class="menu-status">
-      <div>Gold: ${gold}</div>
-      <div style="margin-top: 10px; opacity:0.9;">Sell items:</div>
-      <div class="menu-inventory">${sellAllBtn}${sellButtons || `<div class="menu-empty">No items to sell</div>`}</div>
-      <div style="margin-top: 10px; opacity:0.9;">Upgrades:</div>
-      <div class="menu-inventory">${upgradesHtml}</div>
-      <div style="margin-top: 10px; opacity:0.9;">Consumables:</div>
-      <div class="menu-inventory">${potionButtons}</div>
+    const sellAllBtn =
+      sellTotal > 0
+        ? `<button type="button" class="shop-primary" data-sell-all="1">Sell all valuables (+${sellTotal}g)</button>`
+        : `<div class="shop-muted">No items to sell right now.</div>`;
+
+    content = `<div class="shop-wrap">
+      <div class="shop-header">
+        <div class="shop-title">Shop</div>
+        <div class="shop-subtitle">Gold: <b>${gold}</b></div>
+      </div>
+
+      <div class="shop-section">
+        <div class="shop-section-title">Sell</div>
+        ${sellAllBtn}
+        ${sellRows ? `<div class="shop-rows">${sellRows}</div>` : ""}
+      </div>
+
+      <div class="shop-section">
+        <div class="shop-section-title">Upgrades</div>
+        <div class="shop-rows">${upgradesHtml}</div>
+      </div>
+
+      <div class="shop-section">
+        <div class="shop-section-title">Consumables</div>
+        <div class="shop-rows">${potionsHtml}</div>
+      </div>
     </div>`;
   } else if (activeTab === "blacksmith") {
     const w = player?.hands?.main && String(player.hands.main.effect || "") === "weapon" ? player.hands.main : null;
@@ -662,24 +687,171 @@ function renderMenuHtml() {
     </div>`;
   } else if (activeTab === "codex") {
     const c = player?.codex || { enemies: {}, items: {}, trinkets: {}, materials: {}, statuses: {} };
-    const section = (title, obj) => {
-      const entries = Object.entries(obj || {}).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-      if (!entries.length) return `<div class="menu-empty">No ${escapeHtml(title.toLowerCase())} yet</div>`;
-      return `<div style="text-align:left; max-width: 680px; margin: 0 auto;">
-        <div style="color: var(--accent); font-weight:700; margin: 8px 0 6px;">${escapeHtml(title)}</div>
-        ${entries
-          .map(([k, v]) => `<div class="log-line" style="opacity:0.95;">${escapeHtml(k)} <span style="opacity:0.7;">(${Number(v || 0)})</span></div>`)
-          .join("")}
-      </div>`;
+    const sections = [
+      { id: "enemies", label: "Enemies", obj: c.enemies },
+      { id: "items", label: "Items", obj: c.items },
+      { id: "trinkets", label: "Trinkets", obj: c.trinkets },
+      { id: "materials", label: "Materials", obj: c.materials },
+      { id: "statuses", label: "Status", obj: c.statuses },
+    ];
+    const secId = (() => {
+      const want = String(menuCodexSection || "items").toLowerCase();
+      return sections.some((s) => s.id === want) ? want : "items";
+    })();
+    const sec = sections.find((s) => s.id === secId) || sections[1];
+
+    const entriesRaw = Object.entries(sec?.obj || {})
+      .map(([name, count]) => ({
+        name: String(name || "").trim(),
+        count: Math.max(0, Math.floor(Number(count || 0))),
+      }))
+      .filter((e) => e.name);
+
+    const sortMode = String(menuCodexSort || "name").toLowerCase();
+    entriesRaw.sort((a, b) => {
+      if (sortMode === "count") return b.count - a.count || a.name.localeCompare(b.name);
+      return a.name.localeCompare(b.name);
+    });
+
+    const resolveSelectedKey = () => {
+      const wanted = String(menuCodexSelectedKey || "");
+      if (wanted && entriesRaw.some((e) => e.name === wanted)) return wanted;
+      const first = entriesRaw[0]?.name || "";
+      if (first) menuCodexSelectedKey = first;
+      return first;
     };
-    content = `<div class="menu-log" style="text-align:left;">
-      <div class="log-line" style="color: var(--accent); font-weight: bold;">Codex</div>
-      <div class="log-line" style="opacity:0.85;">Counts track pickups/entries (some are “seen” only).</div>
-      ${section("Enemies", c.enemies)}
-      ${section("Items", c.items)}
-      ${section("Trinkets", c.trinkets)}
-      ${section("Materials", c.materials)}
-      ${section("Status Effects", c.statuses)}
+    const selectedKey = resolveSelectedKey();
+    const selected = entriesRaw.find((e) => e.name === selectedKey) || null;
+
+    const pill = (id, label) =>
+      `<button type="button" class="codex-pill ${secId === id ? "is-active" : ""}" data-codex-section="${escapeHtml(id)}">${escapeHtml(
+        label,
+      )}</button>`;
+    const sortBtn = (id, label) =>
+      `<button type="button" class="codex-chip ${sortMode === id ? "is-active" : ""}" data-codex-sort="${escapeHtml(id)}">${escapeHtml(
+        label,
+      )}</button>`;
+
+    const lookup = (kind, name) => {
+      const nm = String(name || "").trim();
+      if (!nm) return null;
+      const k = String(kind || "").toLowerCase();
+
+      if (k === "enemies") {
+        const pool = [
+          typeof RAT !== "undefined" ? RAT : null,
+          typeof GOBLIN !== "undefined" ? GOBLIN : null,
+          typeof BAT !== "undefined" ? BAT : null,
+          typeof SKELETON !== "undefined" ? SKELETON : null,
+          typeof ORC !== "undefined" ? ORC : null,
+        ].filter(Boolean);
+        return pool.find((e) => String(e?.name || "") === nm) || null;
+      }
+
+      const pools = [
+        ...(Array.isArray(POTIONS) ? POTIONS : []),
+        ...(Array.isArray(TRINKETS) ? TRINKETS : []),
+        ...(Array.isArray(MATERIALS) ? MATERIALS : []),
+        ...(Array.isArray(VALUABLES) ? VALUABLES : []),
+        typeof RAT_MEAT !== "undefined" ? RAT_MEAT : null,
+        typeof COOKED_RAT_MEAT !== "undefined" ? COOKED_RAT_MEAT : null,
+        typeof MUSHROOM !== "undefined" ? MUSHROOM : null,
+        typeof BERRY !== "undefined" ? BERRY : null,
+      ].filter(Boolean);
+      return pools.find((it) => String(it?.name || "") === nm) || null;
+    };
+
+    const listRow = (e) => {
+      const active = selected && e.name === selected.name;
+      const isSeenOnly = e.count <= 0;
+      const isPickable = secId === "items" || secId === "trinkets" || secId === "materials";
+      const badge = isPickable
+        ? isSeenOnly
+          ? `<span class="codex-badge is-seen">Seen</span>`
+          : `<span class="codex-badge is-count">x${e.count}</span>`
+        : `<span class="codex-badge is-seen">Seen</span>`;
+
+      return `<button type="button" class="codex-row ${active ? "is-active" : ""} ${isSeenOnly ? "is-muted" : ""}" data-codex-select="${escapeHtml(
+        e.name,
+      )}">
+        <div class="codex-row-main">
+          <div class="codex-row-name">${escapeHtml(e.name)}</div>
+          ${badge}
+        </div>
+      </button>`;
+    };
+
+    const listHtml =
+      entriesRaw.length === 0
+        ? `<div class="menu-empty">Nothing discovered here yet</div>`
+        : `<div class="codex-list">${entriesRaw.map(listRow).join("")}</div>`;
+
+    const detailsHtml = (() => {
+      if (!selected) return `<div class="menu-empty">Select an entry</div>`;
+
+      const def = lookup(secId, selected.name);
+      const title = `<div class="codex-details-title">${escapeHtml(selected.name)}</div>`;
+      const lines = [];
+
+      const isPickable = secId === "items" || secId === "trinkets" || secId === "materials";
+      if (isPickable) lines.push(selected.count > 0 ? `Picked up: ${selected.count}` : `Seen (not picked up yet)`);
+      else lines.push("Discovered");
+
+      if (def) {
+        const eff = String(def?.effect || "").toLowerCase();
+        if (secId === "enemies") {
+          if (Number.isFinite(Number(def.hp))) lines.push(`HP: ${Number(def.hp)}`);
+          if (Number.isFinite(Number(def.dmg))) lines.push(`Damage: ${Number(def.dmg)}`);
+          if (Number.isFinite(Number(def.sight))) lines.push(`Sight: ${Number(def.sight)}`);
+          if (Number.isFinite(Number(def.toughness))) lines.push(`Toughness: ${Number(def.toughness)}`);
+        } else if (eff) {
+          lines.push(`Type: ${eff}`);
+          if (eff === "food") {
+            lines.push(`Hunger: +${Number(def.hunger || 0)}`);
+            if (Number(def.heal || 0)) lines.push(`Heal: +${Number(def.heal || 0)}`);
+            if (def.cooked) lines.push("Cooked");
+          } else if (eff === "material") {
+            if (def.matId) lines.push(`Material: ${String(def.matId)}`);
+          } else if (eff === "valuable") {
+            if (Number.isFinite(Number(def.baseValue))) lines.push(`Base value: ${Number(def.baseValue)}g`);
+          } else if (eff === "weapon") {
+            if (Number.isFinite(Number(def.level))) lines.push(`Level: ${Number(def.level)}`);
+            if (Number.isFinite(Number(def.maxDamage))) lines.push(`Damage: 0-${Number(def.maxDamage)}`);
+          }
+        }
+        const desc = String(def?.desc || def?.description || "").trim();
+        if (desc) lines.push(desc);
+      } else {
+        lines.push("No additional info yet.");
+      }
+
+      return `${title}<div class="codex-details-body">${lines.map((l) => `<div>${escapeHtml(l)}</div>`).join("")}</div>`;
+    })();
+
+    content = `<div class="codex-wrap">
+      <div class="codex-header">
+        <div class="codex-title">Codex</div>
+        <div class="codex-subtitle">“Seen” entries are things you’ve noticed but haven’t picked up yet.</div>
+        <div class="codex-pills">${sections.map((s) => pill(s.id, s.label)).join("")}</div>
+        <div class="codex-tools">
+          <div class="codex-tool-title">Sort</div>
+          <div class="codex-chip-row">
+            ${sortBtn("name", "Name")}
+            ${sortBtn("count", secId === "items" || secId === "trinkets" || secId === "materials" ? "Picked" : "Seen")}
+          </div>
+        </div>
+      </div>
+
+      <div class="codex-layout">
+        <div class="codex-pane">
+          <div class="codex-pane-title">${escapeHtml(sec?.label || "Entries")}</div>
+          ${listHtml}
+        </div>
+        <div class="codex-pane">
+          <div class="codex-pane-title">Details</div>
+          <div class="codex-details">${detailsHtml}</div>
+        </div>
+      </div>
     </div>`;
   } else if (activeTab === "help") {
     content = `<div class="menu-log" style="text-align:left;">
