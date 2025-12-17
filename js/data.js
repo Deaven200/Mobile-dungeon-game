@@ -43,3 +43,29 @@ const TRAP_TYPES = [
   { type: "spike", color: "silver", dmg: 1 },
   { type: "shock", color: "yellow", dmg: 2 },
 ];
+
+// ===================== EXTRACTION CONCEPT (WIP) =====================
+// Simple pools for the recruiter intro. These are intentionally small and readable.
+const NAMES = [
+  "Arin",
+  "Bex",
+  "Cora",
+  "Dain",
+  "Edda",
+  "Fen",
+  "Jori",
+  "Kiva",
+  "Lorn",
+  "Mira",
+  "Nox",
+  "Orin",
+];
+
+// Talents are not yet wired into balance; we store the selection for later.
+const TALENTS = [
+  { id: "packrat", label: "Pack Rat", desc: "+2 inventory slots (later)" },
+  { id: "tough", label: "Tough", desc: "+10% max HP (later)" },
+  { id: "quick", label: "Quick", desc: "+10% move speed (later)" },
+  { id: "scavenger", label: "Scavenger", desc: "+10% valuables (later)" },
+  { id: "quiet", label: "Quiet Steps", desc: "-10% noise/heat (later)" },
+];

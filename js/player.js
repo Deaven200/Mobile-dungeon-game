@@ -65,6 +65,23 @@ function waitTurn() {
     return;
   }
 
+  // Courtyard entrance -> enter dungeon.
+  if (floor === 0 && currentTile === TILE.ENTRANCE) {
+    showEnterDungeonPrompt();
+    return;
+  }
+
+  // Dungeon upstairs -> exit to courtyard.
+  if (floor > 0 && currentTile === TILE.UPSTAIRS) {
+    if (autoMove?.mode === "walkout") {
+      floor = 0;
+      generateFloor();
+      return;
+    }
+    showExitToCourtyardPrompt();
+    return;
+  }
+
   // Shop interaction if we're standing on a shop tile.
   const shopKey = keyOf(player.x, player.y);
   if (map[`${shopKey}_shop`]) {
@@ -226,6 +243,21 @@ function move(dx, dy) {
   const currentTile = tileAt(player.x, player.y);
   if (currentTile === TILE.TRAPDOOR && !enemies.some((e) => e.x === player.x && e.y === player.y)) {
     showFloorTransition();
+    return;
+  }
+
+  // Enter/Exit prompts
+  if (floor === 0 && currentTile === TILE.ENTRANCE) {
+    showEnterDungeonPrompt();
+    return;
+  }
+  if (floor > 0 && currentTile === TILE.UPSTAIRS) {
+    if (autoMove?.mode === "walkout") {
+      floor = 0;
+      generateFloor();
+      return;
+    }
+    showExitToCourtyardPrompt();
     return;
   }
   

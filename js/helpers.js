@@ -255,6 +255,9 @@ const TILE = Object.freeze({
   CAMPFIRE: "C",
   SHOP: "$",
   POTION: "P",
+  GRASS: ",",
+  ENTRANCE: "D", // courtyard -> dungeon
+  UPSTAIRS: "U", // dungeon -> courtyard
 });
 
 // Map access helpers (still backed by the existing string-keyed map object).
@@ -313,7 +316,16 @@ function pointInCombatRoom(x, y) {
 }
 
 function isWalkableTile(ch) {
-  return ch === TILE.FLOOR || ch === TILE.TRAP_VISIBLE || ch === TILE.TRAPDOOR || ch === TILE.CAMPFIRE || ch === TILE.SHOP;
+  return (
+    ch === TILE.FLOOR ||
+    ch === TILE.GRASS ||
+    ch === TILE.TRAP_VISIBLE ||
+    ch === TILE.TRAPDOOR ||
+    ch === TILE.CAMPFIRE ||
+    ch === TILE.SHOP ||
+    ch === TILE.ENTRANCE ||
+    ch === TILE.UPSTAIRS
+  );
 }
 
 function getStatus(target, kind) {
@@ -814,6 +826,68 @@ function showFloorTransition() {
   }
 }
 
+function showEnterDungeonPrompt() {
+  showPromptOverlay(
+    "Enter the dungeon?",
+    `<div style="opacity:0.9; text-align:center;">Step inside and see what you can bring back out.</div>`,
+    [
+      {
+        id: "enterDungeonBtn",
+        label: "Enter",
+        onClick: () => {
+          const transitionEl = document.getElementById("floorTransition");
+          if (transitionEl) transitionEl.style.display = "none";
+          gamePaused = false;
+          floor = 1;
+          generateFloor();
+        },
+      },
+      {
+        id: "stayOutsideBtn",
+        label: "Stay",
+        subtle: true,
+        onClick: () => {
+          const transitionEl = document.getElementById("floorTransition");
+          if (transitionEl) transitionEl.style.display = "none";
+          gamePaused = false;
+          draw();
+        },
+      },
+    ],
+  );
+}
+
+function showExitToCourtyardPrompt() {
+  showPromptOverlay(
+    "Exit to courtyard?",
+    `<div style="opacity:0.9; text-align:center;">Leaving ends this dive. You keep whatever you carried out.</div>`,
+    [
+      {
+        id: "exitToCourtyardBtn",
+        label: "Exit",
+        onClick: () => {
+          const transitionEl = document.getElementById("floorTransition");
+          if (transitionEl) transitionEl.style.display = "none";
+          gamePaused = false;
+          floor = 0;
+          generateFloor();
+        },
+      },
+      {
+        id: "stayInsideBtn",
+        label: "Stay",
+        subtle: true,
+        onClick: () => {
+          const transitionEl = document.getElementById("floorTransition");
+          if (transitionEl) transitionEl.style.display = "none";
+          gamePaused = false;
+          draw();
+        },
+      },
+    ],
+  );
+}
+
 function getAllSaves() {
   try {
     const savesStr = localStorage.getItem("dungeonGameSaves");
@@ -1096,8 +1170,10 @@ function startGame(options = {}) {
       combo: 0,
       score: 0,
       statusEffects: {},
+      name: "",
+      talent: "",
     };
-    floor = 1;
+    floor = 0;
   }
 
   // Mark game as started even if we came from a load.
@@ -1112,12 +1188,21 @@ function startGame(options = {}) {
   if (mapContainerEl) mapContainerEl.style.display = "flex";
   if (controlsEl) controlsEl.style.display = "flex";
   
-  if (skipGenerateFloor) {
-    setMenuOpen(false);
-    draw();
+  const begin = () => {
+    if (skipGenerateFloor) {
+      setMenuOpen(false);
+      draw();
+    } else {
+      generateFloor();
+      setMenuOpen(false);
+    }
+  };
+
+  // New game: do the recruiter intro first, then start in the courtyard.
+  if (!fromLoad && !skipGenerateFloor) {
+    showRecruiterIntro(begin);
   } else {
-    generateFloor();
-    setMenuOpen(false);
+    begin();
   }
 }
 
@@ -1388,6 +1473,8 @@ function getInvestigationInfoAt(tx, ty) {
 
   const ch = tileAtKey(key);
   if (ch === TILE.TRAPDOOR) return { kind: "trapdoor" };
+  if (ch === TILE.ENTRANCE) return { kind: "entrance" };
+  if (ch === TILE.UPSTAIRS) return { kind: "upstairs" };
   if (ch === TILE.CAMPFIRE) return { kind: "campfire" };
   if (ch === TILE.SHOP) return { kind: "shop" };
   if (ch === TILE.WALL) return { kind: "wall" };
@@ -1450,7 +1537,7 @@ function canEnemyMove(x, y) {
 
 function stopAutoMove() {
   if (autoMove?.timerId) window.clearInterval(autoMove.timerId);
-  autoMove = { timerId: null, path: [], attackTarget: null };
+  autoMove = { timerId: null, path: [], attackTarget: null, mode: null };
 }
 
 function isPlayerWalkable(x, y) {
@@ -1464,7 +1551,7 @@ function isPlayerWalkable(x, y) {
   return true;
 }
 
-function buildPathBfs(goalX, goalY) {
+function buildPathBfs(goalX, goalY, limitOverride = null) {
   const startX = player.x;
   const startY = player.y;
   const startKey = keyOf(startX, startY);
@@ -1472,7 +1559,10 @@ function buildPathBfs(goalX, goalY) {
   if (goalKey === startKey) return [];
 
   // The player can only tap within the visible grid, so keep BFS bounded for performance.
-  const LIMIT = Math.max(30, getViewRadius() + 8);
+  const LIMIT =
+    Number.isFinite(limitOverride) && limitOverride != null
+      ? Math.max(10, Math.floor(limitOverride))
+      : Math.max(30, getViewRadius() + 8);
 
   const prev = new Map();
   prev.set(startKey, null);
@@ -1530,6 +1620,7 @@ function buildPathBfs(goalX, goalY) {
 function startAutoMoveTo(targetX, targetY) {
   stopAutoMove();
   if (gamePaused || menuOpen) return;
+  autoMove.mode = null;
 
   const tile = map[keyOf(targetX, targetY)] || "#";
   if (tile === "#") return;
@@ -1592,4 +1683,135 @@ function startAutoMoveTo(targetX, targetY) {
 
     stopAutoMove();
   }, 120);
+}
+
+function findFirstTile(ch) {
+  const want = String(ch || "");
+  for (const [k, v] of Object.entries(map || {})) {
+    if (k.includes("_")) continue;
+    if (v !== want) continue;
+    const [xs, ys] = k.split(",");
+    const x = Number(xs);
+    const y = Number(ys);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    return { x, y };
+  }
+  return null;
+}
+
+function startWalkout() {
+  if (inMainMenu) return;
+  if (menuOpen) setMenuOpen(false);
+
+  if (floor === 0) {
+    addLog("You are already outside.", "info");
+    draw();
+    return;
+  }
+
+  const exit = findFirstTile(TILE.UPSTAIRS);
+  if (!exit) {
+    addLog("No exit found.", "danger");
+    draw();
+    return;
+  }
+
+  // Walkout should handle long routes. Use a larger BFS bound based on distance.
+  const d = Math.abs(exit.x - player.x) + Math.abs(exit.y - player.y);
+  const limit = clamp(d + 30, 60, 220);
+
+  stopAutoMove();
+  const path = buildPathBfs(exit.x, exit.y, limit);
+  if (!path) {
+    addLog("Can't find a route out.", "danger");
+    draw();
+    return;
+  }
+  autoMove.path = path;
+  autoMove.attackTarget = null;
+  autoMove.mode = "walkout";
+  autoMove.timerId = window.setInterval(() => {
+    if (gamePaused || menuOpen) {
+      stopAutoMove();
+      return;
+    }
+    if (autoMove.path.length) {
+      const step = autoMove.path.shift();
+      if (!step) {
+        stopAutoMove();
+        return;
+      }
+      move(step.dx, step.dy);
+      return;
+    }
+    stopAutoMove();
+  }, 120);
+
+  addLog("Walking out...", "info");
+  draw();
+}
+
+function showPromptOverlay(title, bodyHtml, buttons) {
+  const transitionEl = document.getElementById("floorTransition");
+  if (!transitionEl) return false;
+  stopAutoMove();
+  setInvestigateArmed(false);
+  gamePaused = true;
+
+  const btnHtml = (buttons || [])
+    .map(
+      (b) =>
+        `<button type="button" id="${escapeHtml(b.id)}" style="${b.subtle ? "border-color: rgba(255,255,255,0.4); color: rgba(255,255,255,0.9);" : ""}">${escapeHtml(
+          b.label,
+        )}</button>`,
+    )
+    .join("");
+
+  transitionEl.style.display = "flex";
+  transitionEl.innerHTML = `
+    <h2>${escapeHtml(title || "")}</h2>
+    <div class="transition-stats">${bodyHtml || ""}</div>
+    <div style="display:flex; gap: 10px; justify-content:center; flex-wrap: wrap;">${btnHtml}</div>
+  `;
+
+  for (const b of buttons || []) {
+    const el = document.getElementById(b.id);
+    if (!el) continue;
+    el.onclick = () => b.onClick?.();
+  }
+  return true;
+}
+
+function showRecruiterIntro(onDone) {
+  const name = Array.isArray(NAMES) && NAMES.length ? NAMES[rand(0, NAMES.length - 1)] : "Unknown";
+  const talentObj = Array.isArray(TALENTS) && TALENTS.length ? TALENTS[rand(0, TALENTS.length - 1)] : null;
+  const talentLabel = talentObj?.label || "None";
+
+  // Store for later systems (camp, lineage, etc.)
+  player.name = name;
+  player.talent = talentObj?.id || "none";
+
+  const lines = [
+    `<div style="opacity:0.9;">Recruiter: What's your name?</div>`,
+    `<div style="margin-top:6px; color: var(--accent);">You: I'm ${escapeHtml(name)}.</div>`,
+    `<div style="margin-top:14px; opacity:0.9;">Recruiter: Any talents?</div>`,
+    `<div style="margin-top:6px; color: var(--accent);">You: ${escapeHtml(talentLabel)}.</div>`,
+  ];
+
+  showPromptOverlay(
+    "Recruitment",
+    `<div style="text-align:left; max-width: 520px;">${lines.join("")}</div>`,
+    [
+      {
+        id: "recruiterContinueBtn",
+        label: "Continue",
+        onClick: () => {
+          const transitionEl = document.getElementById("floorTransition");
+          if (transitionEl) transitionEl.style.display = "none";
+          gamePaused = false;
+          onDone?.();
+        },
+      },
+    ],
+  );
 }

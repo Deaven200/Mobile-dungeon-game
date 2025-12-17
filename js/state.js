@@ -81,7 +81,7 @@ let rooms = [];
 let enemies = [];
 let hiddenArea = null; // { revealed, tiles:Set<string>, falseWalls:Set<string>, mouseFlashUntil:number }
 let mouse = null; // { x, y }
-let autoMove = { timerId: null, path: [], attackTarget: null };
+let autoMove = { timerId: null, path: [], attackTarget: null, mode: null };
 let damageNumbers = []; // { x, y, value, type, time }
 let lastTarget = null; // { name, hp, maxHp, x, y, time }
 

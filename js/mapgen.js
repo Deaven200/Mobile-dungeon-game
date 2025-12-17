@@ -35,6 +35,31 @@ function generateFloor() {
   floorStats = { enemiesKilled: 0, itemsFound: 0, damageTaken: 0, damageDealt: 0, trapsTriggered: 0 };
   hiddenTrapCount = 0;
 
+  // Floor 0: safe courtyard outside the dungeon.
+  if (floor === 0) {
+    const SIZE = 30;
+    const MAX = SIZE - 1;
+    for (let y = 0; y < SIZE; y++) {
+      for (let x = 0; x < SIZE; x++) {
+        const isBorder = x === 0 || y === 0 || x === MAX || y === MAX;
+        map[keyOf(x, y)] = isBorder ? TILE.WALL : TILE.GRASS;
+      }
+    }
+
+    // Center entrance.
+    const cx = 15;
+    const cy = 15;
+    map[keyOf(cx, cy)] = TILE.ENTRANCE;
+
+    // Spawn player near the entrance.
+    player.x = cx;
+    player.y = 20;
+
+    setMenuOpen(false);
+    draw();
+    return;
+  }
+
   const roomCount = calculateRoomCountForFloor(floor);
 
   // --- Place rooms (non-overlapping), then connect via a graph ---
@@ -153,8 +178,18 @@ function generateFloor() {
   generateHiddenRoom();
 
   const s = rooms[0];
-  player.x = Math.floor(s.x + s.w / 2);
-  player.y = Math.floor(s.y + s.h / 2);
+  const sx = Math.floor(s.x + s.w / 2);
+  const sy = Math.floor(s.y + s.h / 2);
+
+  // Place an exit back to the courtyard in the start room.
+  setTileAt(sx, sy, TILE.UPSTAIRS);
+
+  // Spawn adjacent so we don't immediately trigger the exit prompt.
+  player.x = sx;
+  player.y = Math.min(s.y + s.h - 1, sy + 1);
+  if (!isPlayerWalkable(player.x, player.y)) {
+    player.y = Math.max(s.y, sy - 1);
+  }
   placeCampfire();
   spawnMouse();
 

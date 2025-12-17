@@ -145,6 +145,18 @@
       "Trapdoor. Progress awaits. Also pain.",
     ],
 
+    entrance: [
+      "The dungeon entrance. It’s waiting for you to blink first.",
+      "An entrance into the dark. It smells like poor decisions and treasure.",
+      "The way in. The hard part is coming back out.",
+    ],
+
+    upstairs: [
+      "A way back out. It looks safer than it actually is.",
+      "Upstairs. Civilization, probably. Or at least fewer rats.",
+      "An exit route. The dungeon hates when you leave.",
+    ],
+
     trapVisible: [
       "A trap. It’s not even trying to be subtle.",
       "Visible trap. At least it’s honest.",
@@ -244,7 +256,7 @@
   }
 
   // Public API: keep script.js small.
-  // info.kind can be: player, wall, falseWall, floor, mouse, enemy, potion, food, trap, trapdoor, campfire, shop
+  // info.kind can be: player, wall, falseWall, floor, mouse, enemy, potion, food, trap, trapdoor, entrance, upstairs, campfire, shop
   window.getInvestigationDescription = function getInvestigationDescription(info) {
     const kind = String(info?.kind || "").toLowerCase();
 
@@ -254,6 +266,8 @@
     if (kind === "floor") return pick(TEXTS.floor);
     if (kind === "mouse") return pick(TEXTS.mouse);
     if (kind === "trapdoor") return pick(TEXTS.trapdoor);
+    if (kind === "entrance") return pick(TEXTS.entrance);
+    if (kind === "upstairs") return pick(TEXTS.upstairs);
     if (kind === "potion") return describePotion(info?.potion);
     if (kind === "food") return describeFood(info?.food);
     if (kind === "trap") return describeTrap(info?.trap);
