@@ -838,6 +838,11 @@ function showEnterDungeonPrompt() {
           const transitionEl = document.getElementById("floorTransition");
           if (transitionEl) transitionEl.style.display = "none";
           gamePaused = false;
+cursor/extraction-game-concept-3720
+          // New dive => new dungeon. Reseed so the floor layouts are fresh every time you enter.
+          seedRng(createSeed());
+
+ main
           floor = 1;
           generateFloor();
         },
@@ -1475,6 +1480,10 @@ function getInvestigationInfoAt(tx, ty) {
   if (ch === TILE.TRAPDOOR) return { kind: "trapdoor" };
   if (ch === TILE.ENTRANCE) return { kind: "entrance" };
   if (ch === TILE.UPSTAIRS) return { kind: "upstairs" };
+ cursor/extraction-game-concept-3720
+  if (ch === TILE.GRASS) return { kind: "grass" };
+
+ main
   if (ch === TILE.CAMPFIRE) return { kind: "campfire" };
   if (ch === TILE.SHOP) return { kind: "shop" };
   if (ch === TILE.WALL) return { kind: "wall" };
@@ -1782,6 +1791,74 @@ function showPromptOverlay(title, bodyHtml, buttons) {
   return true;
 }
 
+ cursor/extraction-game-concept-3720
+function showDialogueOverlay(title, pages, onDone) {
+  const transitionEl = document.getElementById("floorTransition");
+  if (!transitionEl) return false;
+  stopAutoMove();
+  setInvestigateArmed(false);
+  gamePaused = true;
+
+  const pageList = Array.isArray(pages) ? pages.filter(Boolean) : [];
+  if (!pageList.length) return false;
+
+  let idx = 0;
+
+  const close = () => {
+    transitionEl.style.display = "none";
+    gamePaused = false;
+    onDone?.();
+  };
+
+  const render = () => {
+    transitionEl.style.display = "flex";
+    const isLast = idx >= pageList.length - 1;
+    transitionEl.innerHTML = `
+      <h2>${escapeHtml(title || "")}</h2>
+      <div class="transition-stats" style="text-align:left; max-width: 560px;">${pageList[idx]}</div>
+      <div style="display:flex; gap: 10px; justify-content:center; flex-wrap: wrap;">
+        ${idx > 0 ? `<button type="button" id="dlgBackBtn" style="border-color: rgba(255,255,255,0.4); color: rgba(255,255,255,0.9);">Back</button>` : ""}
+        <button type="button" id="dlgNextBtn">${isLast ? "Continue" : "Next"}</button>
+        <button type="button" id="dlgSkipBtn" style="border-color: rgba(255,255,255,0.4); color: rgba(255,255,255,0.9);">Skip</button>
+      </div>
+    `;
+
+    const backBtn = document.getElementById("dlgBackBtn");
+    if (backBtn) {
+      backBtn.onclick = () => {
+        idx = Math.max(0, idx - 1);
+        playSound?.("menu");
+        render();
+      };
+    }
+
+    const nextBtn = document.getElementById("dlgNextBtn");
+    if (nextBtn) {
+      nextBtn.onclick = () => {
+        playSound?.("menu");
+        if (idx >= pageList.length - 1) close();
+        else {
+          idx += 1;
+          render();
+        }
+      };
+    }
+
+    const skipBtn = document.getElementById("dlgSkipBtn");
+    if (skipBtn) {
+      skipBtn.onclick = () => {
+        playSound?.("menu");
+        close();
+      };
+    }
+  };
+
+  render();
+  return true;
+}
+
+
+ main
 function showRecruiterIntro(onDone) {
   const name = Array.isArray(NAMES) && NAMES.length ? NAMES[rand(0, NAMES.length - 1)] : "Unknown";
   const talentObj = Array.isArray(TALENTS) && TALENTS.length ? TALENTS[rand(0, TALENTS.length - 1)] : null;
@@ -1790,6 +1867,22 @@ function showRecruiterIntro(onDone) {
   // Store for later systems (camp, lineage, etc.)
   player.name = name;
   player.talent = talentObj?.id || "none";
+
+ cursor/extraction-game-concept-3720
+  const you = (t) => `<div style="margin-top:6px; color: var(--accent);">You: ${t}</div>`;
+  const rec = (t) => `<div style="opacity:0.92;">Recruiter: ${t}</div>`;
+
+  const pages = [
+    [rec("Alright, next. Step up."), rec("Name?")].join(""),
+    [you(`I'm ${escapeHtml(name)}.`), rec("Good. Try to keep it.")].join(""),
+    [rec("Any talents?"), rec("And don't say 'dying'.")].join(""),
+    [you(`${escapeHtml(talentLabel)}.`), rec("That'll have to do.")].join(""),
+    [rec("Rule one: you go in, you come back out."), rec("If you don't come back out… you're done.")].join(""),
+    [rec("Courtyard's safe. Dungeon isn't."), rec("Bring something worth selling. Then go deeper.")].join(""),
+    [you("Got it."), rec("Door's at the center. Don't make me regret this.")].join(""),
+  ];
+
+  showDialogueOverlay("Recruitment", pages, onDone);
 
   const lines = [
     `<div style="opacity:0.9;">Recruiter: What's your name?</div>`,
@@ -1814,4 +1907,5 @@ function showRecruiterIntro(onDone) {
       },
     ],
   );
+ main
 }

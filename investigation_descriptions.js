@@ -157,6 +157,15 @@
       "An exit route. The dungeon hates when you leave.",
     ],
 
+ cursor/extraction-game-concept-3720
+    grass: [
+      "Grass. Soft. Innocent. It will not prepare you for what’s inside.",
+      "A patch of grass. Outside still exists. For now.",
+      "Green and calm. The last free feeling you’ll get today.",
+    ],
+
+
+ main
     trapVisible: [
       "A trap. It’s not even trying to be subtle.",
       "Visible trap. At least it’s honest.",
@@ -256,7 +265,11 @@
   }
 
   // Public API: keep script.js small.
+ cursor/extraction-game-concept-3720
+  // info.kind can be: player, wall, falseWall, floor, grass, mouse, enemy, potion, food, trap, trapdoor, entrance, upstairs, campfire, shop
+
   // info.kind can be: player, wall, falseWall, floor, mouse, enemy, potion, food, trap, trapdoor, entrance, upstairs, campfire, shop
+ main
   window.getInvestigationDescription = function getInvestigationDescription(info) {
     const kind = String(info?.kind || "").toLowerCase();
 
@@ -264,6 +277,7 @@
     if (kind === "falsewall") return pick(TEXTS.falseWall);
     if (kind === "wall") return pick(TEXTS.wall);
     if (kind === "floor") return pick(TEXTS.floor);
+    if (kind === "grass") return pick(TEXTS.grass);
     if (kind === "mouse") return pick(TEXTS.mouse);
     if (kind === "trapdoor") return pick(TEXTS.trapdoor);
     if (kind === "entrance") return pick(TEXTS.entrance);
