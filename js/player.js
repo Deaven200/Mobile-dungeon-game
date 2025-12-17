@@ -13,6 +13,16 @@ function handlePlayerDeathIfNeeded() {
     addLog(`NEW HIGH SCORE: ${player.score}!`, "loot");
   }
 
+  // Permadeath: run ends, player wipes, back to main menu.
+  // (Saves are disabled in permadeath mode; best-effort clear any existing saves.)
+  if (settings?.permadeath) {
+    try {
+      localStorage.removeItem("dungeonGameSaves");
+    } catch {
+      // ignore
+    }
+  }
+
   // Return to main menu after a brief delay
   setTimeout(() => {
     returnToMainMenu();
@@ -127,7 +137,12 @@ function move(dx, dy) {
 
   if (enemy) {
     // Critical hits & misses
-    let dealt = rollBellInt(0, player.dmg);
+    const unarmedMax = 2;
+    const weapon = player?.hands?.main && String(player.hands.main.effect || "") === "weapon" ? player.hands.main : null;
+    const weaponMax = weapon ? Math.max(1, Math.floor(Number(weapon.maxDamage || 1))) : null;
+    const bonus = Math.max(0, Math.floor(Number(player.dmg || 0))); // strength bonus
+    const maxDmg = weaponMax != null ? weaponMax + bonus : unarmedMax + bonus;
+    let dealt = rollBellInt(0, maxDmg);
     const crit = rollChance(0.1); // 10% crit chance
     const miss = rollChance(0.05); // 5% miss chance
     
@@ -188,8 +203,16 @@ function move(dx, dy) {
         setTileAtKey(deathKey, RAT_MEAT.symbol);
         setLootAtKey(deathKey, RAT_MEAT);
         addLog("Rat dropped meat", "loot");
-      } else if (rollChance(0.05) || (player.combo >= 3 && rollChance(0.15))) {
-        // Better drop rate on combo
+      } else if (!lootAtKey(deathKey) && (rollChance(0.08) || (player.combo >= 3 && rollChance(0.14)))) {
+        // Valuables: meant to be sold after you extract.
+        if (Array.isArray(VALUABLES) && VALUABLES.length) {
+          const v = VALUABLES[rand(0, VALUABLES.length - 1)];
+          setTileAtKey(deathKey, v.symbol);
+          setLootAtKey(deathKey, v);
+          addLog(`${enemy?.name || "Enemy"} dropped ${v.name}`, "loot");
+        }
+      } else if (!lootAtKey(deathKey) && (rollChance(0.05) || (player.combo >= 3 && rollChance(0.15)))) {
+        // Better potion drop rate on combo
         const p = POTIONS[rand(0, POTIONS.length - 1)];
         setTileAtKey(deathKey, TILE.POTION);
         setLootAtKey(deathKey, p);
@@ -229,14 +252,21 @@ function move(dx, dy) {
   const pKey = keyOf(player.x, player.y);
   const loot = lootAtKey(pKey);
   if (loot) {
-    player.inventory.push(loot);
-    const lootName = loot?.name || "item";
-    addLog(`Picked up ${lootName}`, "loot");
-    playSound?.("loot");
-    vibrate(10);
-    floorStats.itemsFound++;
-    clearLootAtKey(pKey);
-    setTileAtKey(pKey, TILE.FLOOR);
+    const cap = Math.max(0, Number(player.maxInventory ?? 10));
+    if (cap && player.inventory.length >= cap) {
+      addLog("Inventory full. Sell or use items.", "block");
+      playSound?.("miss");
+      vibrate(8);
+    } else {
+      player.inventory.push(loot);
+      const lootName = loot?.name || "item";
+      addLog(`Picked up ${lootName}`, "loot");
+      playSound?.("loot");
+      vibrate(10);
+      floorStats.itemsFound++;
+      clearLootAtKey(pKey);
+      setTileAtKey(pKey, TILE.FLOOR);
+    }
   }
 
   // Check if we're standing on a trapdoor (either just moved onto it, or killed enemy on it)

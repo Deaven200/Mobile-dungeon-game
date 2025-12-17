@@ -291,13 +291,38 @@ function bindInputs() {
         return;
       }
 
-      if (btn.dataset.usePotion != null) {
-        usePotion(Number(btn.dataset.usePotion));
+      if (btn.dataset.useItem != null) {
+        useInventoryItem(Number(btn.dataset.useItem));
         return;
       }
 
       if (btn.dataset.cookFood != null) {
         cookFood(Number(btn.dataset.cookFood));
+        return;
+      }
+
+      if (btn.dataset.sellAll != null) {
+        sellAllValuables();
+        return;
+      }
+
+      if (btn.dataset.sellItem != null) {
+        sellInventoryItem(Number(btn.dataset.sellItem));
+        return;
+      }
+
+      if (btn.dataset.buyUpgrade != null) {
+        buyUpgrade(btn.dataset.buyUpgrade);
+        return;
+      }
+
+      if (btn.dataset.equipMain != null) {
+        equipToHand("main", Number(btn.dataset.equipMain));
+        return;
+      }
+
+      if (btn.dataset.unequipHand != null) {
+        unequipHand(btn.dataset.unequipHand);
         return;
       }
 

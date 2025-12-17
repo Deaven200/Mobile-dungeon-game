@@ -564,7 +564,7 @@ function updateHud() {
   if (hungerMax) hungerMax.textContent = Number(player.maxHunger || 0).toFixed(1);
   
   // Build status line with combo and status effects
-  let statusParts = [`Floor ${floor}`, `Score: ${player.score || 0}`];
+  let statusParts = [`Floor ${floor}`, `Gold: ${player.gold || 0}`, `Score: ${player.score || 0}`];
   if (player.combo > 0) {
     statusParts.push(`${player.combo}x Combo`);
   }
@@ -667,26 +667,172 @@ function openShopMenu() {
   draw();
 }
 
+function getItemSellValue(item) {
+  if (!item) return 0;
+  if (String(item.effect || "") !== "valuable") return 0;
+  return Math.max(0, Math.floor(Number(item.value || 0)));
+}
+
+function sellInventoryItem(invIndex) {
+  if (!atShop) return;
+  const idx = Number(invIndex);
+  if (!Number.isFinite(idx)) return;
+  const it = player.inventory?.[idx];
+  if (!it) return;
+  const v = getItemSellValue(it);
+  if (!v) {
+    addLog("That can't be sold here.", "block");
+    return;
+  }
+  player.gold = Math.max(0, Number(player.gold || 0) + v);
+  player.inventory.splice(idx, 1);
+  addLog(`Sold ${it.name} (+${v} gold)`, "loot");
+  playSound?.("loot");
+  vibrate(10);
+  draw();
+}
+
+function sellAllValuables() {
+  if (!atShop) return;
+  let gained = 0;
+  const kept = [];
+  for (const it of player.inventory || []) {
+    const v = getItemSellValue(it);
+    if (v > 0) gained += v;
+    else kept.push(it);
+  }
+  if (gained <= 0) {
+    addLog("No valuables to sell.", "info");
+    return;
+  }
+  player.inventory = kept;
+  player.gold = Math.max(0, Number(player.gold || 0) + gained);
+  addLog(`Sold valuables (+${gained} gold)`, "loot");
+  playSound?.("loot");
+  vibrate([12, 30, 12]);
+  draw();
+}
+
+function getUpgradeCost(kind) {
+  const w = Number(player.gear?.weapon || 0);
+  const a = Number(player.gear?.armor || 0);
+  const p = Number(player.gear?.pack || 0);
+  if (kind === "weapon") return 80 + w * 60;
+  if (kind === "armor") return 80 + a * 60;
+  if (kind === "pack") return 60 + p * 50;
+  return 999999;
+}
+
+function buyUpgrade(kind) {
+  if (!atShop) return;
+  const k = String(kind || "");
+  const cost = getUpgradeCost(k);
+  if (!Number.isFinite(cost)) return;
+  if (Number(player.gold || 0) < cost) {
+    addLog("Not enough gold", "block");
+    return;
+  }
+  player.gold -= cost;
+  if (!player.gear || typeof player.gear !== "object") player.gear = { weapon: 0, armor: 0, pack: 0 };
+
+  if (k === "weapon") {
+    player.gear.weapon = Number(player.gear.weapon || 0) + 1;
+    player.dmg += 1;
+    addLog("Upgraded weapon (+1 dmg)", "loot");
+  } else if (k === "armor") {
+    player.gear.armor = Number(player.gear.armor || 0) + 1;
+    player.toughness += 1;
+    addLog("Upgraded armor (+1 toughness)", "loot");
+  } else if (k === "pack") {
+    player.gear.pack = Number(player.gear.pack || 0) + 1;
+    player.maxInventory = Math.max(0, Number(player.maxInventory ?? 10) + 2);
+    addLog("Upgraded pack (+2 slots)", "loot");
+  } else {
+    // Refund
+    player.gold += cost;
+    return;
+  }
+  playSound?.("loot");
+  vibrate(12);
+  draw();
+}
+
+function isHandItem(item) {
+  return item && String(item.effect || "") === "weapon" && String(item.slot || "") === "hand";
+}
+
+function equipToHand(hand, invIndex) {
+  const h = String(hand || "");
+  if (h !== "main" && h !== "off") return;
+  const idx = Number(invIndex);
+  if (!Number.isFinite(idx)) return;
+  const it = player.inventory?.[idx];
+  if (!isHandItem(it)) {
+    addLog("That doesn't fit in your hand.", "block");
+    return;
+  }
+
+  if (!player.hands || typeof player.hands !== "object") player.hands = { main: null, off: null };
+
+  // Swap with whatever is in the slot.
+  const prev = player.hands[h] || null;
+  player.hands[h] = it;
+  // Remove from inventory
+  player.inventory.splice(idx, 1);
+  // Put previous back in inventory if it existed
+  if (prev) player.inventory.push(prev);
+
+  addLog(`Equipped: ${it.name} (${h} hand)`, "loot");
+  playSound?.("menu");
+  draw();
+}
+
+function unequipHand(hand) {
+  const h = String(hand || "");
+  if (h !== "main" && h !== "off") return;
+  if (!player.hands || typeof player.hands !== "object") player.hands = { main: null, off: null };
+  const it = player.hands[h];
+  if (!it) return;
+
+  const cap = Math.max(0, Number(player.maxInventory ?? 10));
+  if (cap && (player.inventory?.length || 0) >= cap) {
+    addLog("Inventory full", "block");
+    return;
+  }
+
+  player.hands[h] = null;
+  player.inventory.push(it);
+  addLog(`Unequipped: ${it.name}`, "info");
+  playSound?.("menu");
+  draw();
+}
+
 function buyShopItem(shopIndex) {
   if (!atShop) return;
   const idx = Number(shopIndex);
   if (!Number.isFinite(idx)) return;
 
   const shopItems = [
-    ...POTIONS.slice(0, 3).map((p, i) => ({ ...p, price: 50 + i * 25, shopIndex: i })),
-    ...POTIONS.slice(3).map((p, i) => ({ ...p, price: 75 + i * 25, shopIndex: i + 3 })),
+    ...POTIONS.slice(0, 3).map((p, i) => ({ ...p, price: 25 + i * 15, shopIndex: i })),
+    ...POTIONS.slice(3).map((p, i) => ({ ...p, price: 70 + i * 20, shopIndex: i + 3 })),
   ];
 
   const item = shopItems.find((it) => it.shopIndex === idx);
   if (!item) return;
 
   const price = Number(item.price || 0);
-  if (player.score < price) {
-    addLog("Not enough score", "block");
+  if (Number(player.gold || 0) < price) {
+    addLog("Not enough gold", "block");
     return;
   }
 
-  player.score -= price;
+  const cap = Math.max(0, Number(player.maxInventory ?? 10));
+  if (cap && (player.inventory?.length || 0) >= cap) {
+    addLog("Inventory full", "block");
+    return;
+  }
+
+  player.gold -= price;
   // Store the base item (no price/shopIndex fields).
   const { price: _p, shopIndex: _s, ...baseItem } = item;
   player.inventory.push(baseItem);
@@ -842,7 +988,11 @@ function showEnterDungeonPrompt() {
           // New dive => new dungeon. Reseed so the floor layouts are fresh every time you enter.
           seedRng(createSeed());
 
-
+          // New dive stats
+          player.score = 0;
+          player.kills = 0;
+          player.combo = 0;
+          player.statusEffects = {};
 
           floor = 1;
           generateFloor();
@@ -866,7 +1016,7 @@ function showEnterDungeonPrompt() {
 function showExitToCourtyardPrompt() {
   showPromptOverlay(
     "Exit to courtyard?",
-    `<div style="opacity:0.9; text-align:center;">Leaving ends this dive. You keep whatever you carried out.</div>`,
+    `<div style="opacity:0.9; text-align:center;">Leaving ends this dive. Bring valuables to the courtyard shop to sell for gold.</div>`,
     [
       {
         id: "exitToCourtyardBtn",
@@ -933,6 +1083,11 @@ function deserializeHiddenArea(ha) {
 
 function saveGame(saveName = null) {
   try {
+    if (settings?.permadeath) {
+      addLog("Saving disabled (Permadeath)", "info");
+      return false;
+    }
+
     const trimmedLog = Array.isArray(logHistory) ? logHistory.slice(-200) : [];
     const exploredArr = Array.from(explored || []);
     const trimmedExplored = exploredArr.length > 25000 ? exploredArr.slice(-25000) : exploredArr;
@@ -1008,6 +1163,11 @@ function saveGame(saveName = null) {
 
 function loadGame(saveId = null) {
   try {
+    if (settings?.permadeath) {
+      addLog("Loading disabled (Permadeath)", "info");
+      return false;
+    }
+
     const saves = getAllSaves();
     
     if (saves.length === 0) {
@@ -1029,6 +1189,15 @@ function loadGame(saveId = null) {
     }
     
     player = { ...player, ...saveData.player };
+    if (!Number.isFinite(player.maxInventory)) player.maxInventory = 10;
+    if (!Number.isFinite(player.gold)) player.gold = 0;
+    if (!player.gear || typeof player.gear !== "object") player.gear = { weapon: 0, armor: 0, pack: 0 };
+    if (!Number.isFinite(player.gear.weapon)) player.gear.weapon = 0;
+    if (!Number.isFinite(player.gear.armor)) player.gear.armor = 0;
+    if (!Number.isFinite(player.gear.pack)) player.gear.pack = 0;
+    if (!player.hands || typeof player.hands !== "object") player.hands = { main: null, off: null };
+    if (!("main" in player.hands)) player.hands.main = null;
+    if (!("off" in player.hands)) player.hands.off = null;
     floor = saveData.floor || floor;
 
     // Restore full game state if present.
@@ -1075,6 +1244,21 @@ function deleteSave(saveId) {
 function showLoadMenu() {
   const mainMenuEl = document.getElementById("mainMenu");
   if (!mainMenuEl) return;
+
+  if (settings?.permadeath) {
+    mainMenuEl.innerHTML = `
+      <div class="menu-screen">
+        <h1 class="menu-title">Load Game</h1>
+        <div class="menu-buttons">
+          <div style="text-align: center; padding: 20px; color: var(--accent);">Disabled in Permadeath</div>
+          <button type="button" class="menu-screen-button" id="backToMainMenuBtn">Back to Menu</button>
+        </div>
+      </div>
+    `;
+    const backBtn = document.getElementById("backToMainMenuBtn");
+    if (backBtn) backBtn.addEventListener("click", () => initMainMenu());
+    return;
+  }
   
   const saves = getAllSaves();
   
@@ -1167,14 +1351,18 @@ function startGame(options = {}) {
       y: 0,
       hp: 10,
       maxHp: 10,
-      dmg: 2,
+      dmg: 0,
       toughness: 0,
       inventory: [],
+      maxInventory: 10,
+      hands: { main: null, off: null },
       hunger: 10,
       maxHunger: 10,
       kills: 0,
       combo: 0,
       score: 0,
+      gold: 0,
+      gear: { weapon: 0, armor: 0, pack: 0 },
       statusEffects: {},
       name: "",
       talent: "",
@@ -1237,7 +1425,7 @@ function returnToMainMenu() {
 
 function quitToMenu() {
   if (confirm("Quit to main menu? Progress will be saved.")) {
-    if (settings.autoSave) {
+    if (settings.autoSave && !settings?.permadeath) {
       saveGame("Auto-save");
     }
     returnToMainMenu();
@@ -1304,6 +1492,10 @@ function showMainMenuSettings() {
           <input type="checkbox" ${settings.confirmDescend ? "checked" : ""} id="setting-confirm-descend" style="width: 20px; height: 20px;">
           Confirm descend on trapdoor
         </label>
+        <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+          <input type="checkbox" ${settings.permadeath ? "checked" : ""} id="setting-permadeath" style="width: 20px; height: 20px;">
+          Permadeath (no saves)
+        </label>
         <button type="button" class="menu-screen-button" id="backToMenuBtn" style="margin-top: 15px;">Back to Menu</button>
       </div>
     </div>
@@ -1327,6 +1519,7 @@ function showMainMenuSettings() {
   const diagonalMeleeCheck = document.getElementById("setting-diagonal-melee");
   const hapticsCheck = document.getElementById("setting-haptics");
   const confirmDescendCheck = document.getElementById("setting-confirm-descend");
+  const permadeathCheck = document.getElementById("setting-permadeath");
   
   if (damageCheck) {
     damageCheck.addEventListener("change", (e) => {
@@ -1389,6 +1582,15 @@ function showMainMenuSettings() {
       localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
     });
   }
+
+  if (permadeathCheck) {
+    permadeathCheck.addEventListener("change", (e) => {
+      settings.permadeath = !!e.target.checked;
+      // If enabling permadeath, also disable autosave (it’s meaningless).
+      if (settings.permadeath) settings.autoSave = false;
+      localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+    });
+  }
 }
 
 function initMainMenu() {
@@ -1406,7 +1608,7 @@ function initMainMenu() {
       ${versionLabel ? `<div class="menu-version">v${escapeHtml(versionLabel)}</div>` : ""}
       <div class="menu-buttons">
         <button type="button" id="startGameBtn" class="menu-screen-button">Start Game</button>
-        <button type="button" id="loadGameBtn" class="menu-screen-button">Load Game</button>
+        ${settings?.permadeath ? "" : `<button type="button" id="loadGameBtn" class="menu-screen-button">Load Game</button>`}
         <button type="button" id="settingsMenuBtn" class="menu-screen-button">Settings</button>
         ${gameStarted ? '<button type="button" id="quitToMenuBtn" class="menu-screen-button">Quit to Menu</button>' : ''}
         <button type="button" id="quitGameBtn" class="menu-screen-button" style="margin-top: 10px; border-color: #ff4444; color: #ff4444;">Quit Game</button>
@@ -1431,7 +1633,7 @@ function initMainMenu() {
 
 function quitGame() {
   if (confirm("Quit the game? Your progress will be saved automatically.")) {
-    if (settings.autoSave && gameStarted) {
+    if (settings.autoSave && gameStarted && !settings?.permadeath) {
       saveGame("Auto-save");
     }
     // Close the window/tab if possible, otherwise just show a message
@@ -1471,6 +1673,8 @@ function getInvestigationInfoAt(tx, ty) {
   if (loot) {
     const effect = String(loot?.effect || "").toLowerCase();
     if (effect === "food") return { kind: "food", food: loot };
+    if (effect === "valuable") return { kind: "valuable", valuable: loot };
+    if (effect === "weapon") return { kind: "weapon", weapon: loot };
     return { kind: "potion", potion: loot };
   }
 
@@ -1858,10 +2062,6 @@ function showDialogueOverlay(title, pages, onDone) {
   render();
   return true;
 }
-
-
-
-n
 function showRecruiterIntro(onDone) {
   const name = Array.isArray(NAMES) && NAMES.length ? NAMES[rand(0, NAMES.length - 1)] : "Unknown";
   const talentObj = Array.isArray(TALENTS) && TALENTS.length ? TALENTS[rand(0, TALENTS.length - 1)] : null;
@@ -1870,6 +2070,8 @@ function showRecruiterIntro(onDone) {
   // Store for later systems (camp, lineage, etc.)
   player.name = name;
   player.talent = talentObj?.id || "none";
+  // Apply a small, immediate passive so talents feel real.
+  player.maxInventory = 10 + (player.talent === "packrat" ? 2 : 0);
 
 
   const you = (t) => `<div style="margin-top:6px; color: var(--accent);">You: ${t}</div>`;

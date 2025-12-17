@@ -37,7 +37,7 @@ function generateFloor() {
 
   // Floor 0: safe courtyard outside the dungeon.
   if (floor === 0) {
-    const SIZE = 30;
+    const SIZE = 35;
     const MAX = SIZE - 1;
     for (let y = 0; y < SIZE; y++) {
       for (let x = 0; x < SIZE; x++) {
@@ -46,14 +46,82 @@ function generateFloor() {
       }
     }
 
-    // Center entrance.
-    const cx = 15;
-    const cy = 15;
+    const cx = Math.floor(SIZE / 2);
+    const cy = Math.floor(SIZE / 2);
+
+    // Helper: carve a simple path.
+    const carvePath = (x0, y0, x1, y1) => {
+      let x = x0;
+      let y = y0;
+      const stepX = () => (x < x1 ? 1 : x > x1 ? -1 : 0);
+      const stepY = () => (y < y1 ? 1 : y > y1 ? -1 : 0);
+      for (let i = 0; i < 300; i++) {
+        map[keyOf(x, y)] = TILE.FLOOR;
+        if (x === x1 && y === y1) break;
+        // Slightly jitter between horizontal/vertical for a more “path” feel.
+        const dx = stepX();
+        const dy = stepY();
+        if (dx && dy) {
+          if (rollChance(0.5)) x += dx;
+          else y += dy;
+        } else if (dx) x += dx;
+        else if (dy) y += dy;
+        else break;
+      }
+      map[keyOf(x1, y1)] = TILE.FLOOR;
+    };
+
+    // Helper: place a little building (walls with a floor interior and a doorway).
+    const placeBuilding = (x, y, w, h, doorSide = "south") => {
+      for (let yy = y; yy < y + h; yy++) {
+        for (let xx = x; xx < x + w; xx++) {
+          const isEdge = xx === x || yy === y || xx === x + w - 1 || yy === y + h - 1;
+          map[keyOf(xx, yy)] = isEdge ? TILE.WALL : TILE.FLOOR;
+        }
+      }
+      let dx = x + Math.floor(w / 2);
+      let dy = y + h - 1;
+      if (doorSide === "north") {
+        dy = y;
+      } else if (doorSide === "east") {
+        dx = x + w - 1;
+        dy = y + Math.floor(h / 2);
+      } else if (doorSide === "west") {
+        dx = x;
+        dy = y + Math.floor(h / 2);
+      }
+      map[keyOf(dx, dy)] = TILE.FLOOR;
+      return { doorX: dx, doorY: dy };
+    };
+
+    // Center entrance (dungeon door).
     map[keyOf(cx, cy)] = TILE.ENTRANCE;
+
+    // Campfire at the camp center.
+    const fireX = cx - 5;
+    const fireY = cy + 6;
+    map[keyOf(fireX, fireY)] = TILE.CAMPFIRE;
+
+    // Merchant building with shop inside.
+    const shopB = placeBuilding(cx + 6, cy + 3, 9, 7, "south");
+    const shopX = cx + 6 + 4;
+    const shopY = cy + 3 + 3;
+    map[keyOf(shopX, shopY)] = TILE.SHOP;
+    map[`${shopX},${shopY}_shop`] = true;
+
+    // A couple extra huts for flavor.
+    const hut1 = placeBuilding(cx - 15, cy + 2, 7, 6, "south");
+    const hut2 = placeBuilding(cx - 14, cy - 10, 8, 6, "east");
+
+    // Paths between key points.
+    carvePath(cx, cy, fireX, fireY);
+    carvePath(fireX, fireY, shopB.doorX, shopB.doorY);
+    carvePath(fireX, fireY, hut1.doorX, hut1.doorY);
+    carvePath(cx, cy, hut2.doorX, hut2.doorY);
 
     // Spawn player near the entrance.
     player.x = cx;
-    player.y = 20;
+    player.y = cy + 10;
 
     setMenuOpen(false);
     draw();
@@ -134,6 +202,8 @@ function generateFloor() {
     if (r.type === "enemy") {
       spawnEnemies(r.x, r.y, r.w, r.h);
       spawnPotion(r.x, r.y, r.w, r.h);
+      spawnValuable(r.x, r.y, r.w, r.h, 0.07);
+      spawnSword(r.x, r.y, r.w, r.h, 0.06);
       // Sometimes spawn food in enemy rooms too
       if (rollChance(0.15)) spawnFood(r.x, r.y, r.w, r.h);
     } else if (r.type === "boss") {
@@ -141,11 +211,17 @@ function generateFloor() {
       spawnBossEnemy(r.x, r.y, r.w, r.h);
       // Boss room has guaranteed potion
       if (rollChance(0.8)) spawnPotion(r.x, r.y, r.w, r.h);
+      // Boss room should feel “worth it”
+      for (let i = 0; i < rand(1, 2); i++) spawnValuable(r.x, r.y, r.w, r.h, 1.0);
+      // Boss drop: guaranteed sword
+      spawnSword(r.x, r.y, r.w, r.h, 1.0);
     } else if (r.type === "treasure") {
       // Treasure room: lots of loot, no enemies
       for (let i = 0; i < rand(2, 4); i++) {
         spawnPotion(r.x, r.y, r.w, r.h);
       }
+      for (let i = 0; i < rand(1, 3); i++) spawnValuable(r.x, r.y, r.w, r.h, 1.0);
+      for (let i = 0; i < rand(1, 2); i++) spawnSword(r.x, r.y, r.w, r.h, 1.0);
       // Spawn food in treasure rooms (higher chance)
       if (rollChance(0.7)) spawnFood(r.x, r.y, r.w, r.h);
     } else if (r.type === "trap") {
@@ -164,6 +240,8 @@ function generateFloor() {
       }
       // Guaranteed potion in trap room
       spawnPotion(r.x, r.y, r.w, r.h);
+      spawnValuable(r.x, r.y, r.w, r.h, 0.65);
+      spawnSword(r.x, r.y, r.w, r.h, 0.25);
     } else if (r.type === "shop") {
       // Shop room: merchant NPC
       const shopX = Math.floor(r.x + r.w / 2);
@@ -480,6 +558,59 @@ function spawnPotion(x, y, w, h) {
 
     setTileAt(px, py, TILE.POTION);
     setLootAtKey(keyOf(px, py), p);
+    return;
+  }
+}
+
+function spawnValuable(x, y, w, h, chance = 0.08) {
+  if (!Array.isArray(VALUABLES) || !VALUABLES.length) return;
+  if (!rollChance(chance)) return;
+
+  const base = VALUABLES[rand(0, VALUABLES.length - 1)];
+  const rar = typeof pickRarityForFloor === "function" ? pickRarityForFloor(floor) : null;
+  const rarityId = rar?.id || "common";
+  const it = {
+    ...base,
+    rarity: rarityId,
+    value: typeof calcValuableValue === "function" ? calcValuableValue(base.baseValue || base.value || 1, rarityId) : base.value,
+    name: `${rar?.label || "Common"} ${base.name}`,
+  };
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const vx = rand(x, x + w - 1);
+    const vy = rand(y, y + h - 1);
+    const k = keyOf(vx, vy);
+    if (map[k] !== ".") continue;
+    if (enemies.some((e) => e.x === vx && e.y === vy)) continue;
+    if (lootAtKey(k) || trapAtKey(k)) continue;
+    map[k] = it.symbol;
+    setLootAtKey(k, it);
+    return;
+  }
+}
+
+function rollGearLevelForFloor(f) {
+  const floorNum = Math.max(1, Number(f || 1));
+  // Level is the main scaling axis: deeper floors yield higher level gear.
+  // Keep it simple and steady: ~floor +/- small variance.
+  const base = floorNum + rand(-1, 2);
+  return Math.max(1, base);
+}
+
+function spawnSword(x, y, w, h, chance = 0.06) {
+  if (typeof makeSword !== "function") return;
+  if (!rollChance(chance)) return;
+  const lvl = rollGearLevelForFloor(floor);
+  const sword = makeSword(lvl, pickRarityForFloor(floor));
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const sx = rand(x, x + w - 1);
+    const sy = rand(y, y + h - 1);
+    const k = keyOf(sx, sy);
+    if (map[k] !== ".") continue;
+    if (enemies.some((e) => e.x === sx && e.y === sy)) continue;
+    if (lootAtKey(k) || trapAtKey(k)) continue;
+    map[k] = sword.symbol;
+    setLootAtKey(k, sword);
     return;
   }
 }
