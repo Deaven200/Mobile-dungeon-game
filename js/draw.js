@@ -226,7 +226,7 @@ function renderMenuHtml() {
 
       content = `${header}<div class="inv-pane inv-pane-inventory">
         <div class="inv-section-title">Items</div>
-        <div class="inv-grid-wrap">
+        <div class="inv-grid-wrap ${overlayOpen ? "is-overlay-open" : ""}">
           ${overlayHtml}
           ${gridHtml}
         </div>
