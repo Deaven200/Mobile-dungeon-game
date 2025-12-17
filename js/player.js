@@ -1,5 +1,38 @@
 /* ===================== PLAYER ===================== */
 
+function waitTurn() {
+  if (gamePaused || menuOpen || inMainMenu) return;
+
+  // Waiting is a full "turn advance" without interacting with the tile.
+  // Important: do NOT trigger trapdoors/shops/campfires just because you're waiting.
+  tickHunger(HUNGER_COST_MOVE);
+
+  moveMouse();
+  moveEnemies();
+  tickStatusEffects(player, "player");
+
+  // Hunger-based regeneration when out of combat
+  tickHungerRegeneration();
+
+  if (player.hp <= 0) {
+    addLog("You died", "death");
+    // Save high score before returning to menu
+    const highScore = localStorage.getItem("dungeonHighScore") || 0;
+    if (player.score > Number(highScore)) {
+      localStorage.setItem("dungeonHighScore", player.score);
+      addLog(`NEW HIGH SCORE: ${player.score}!`, "loot");
+    }
+
+    // Return to main menu after a brief delay
+    setTimeout(() => {
+      returnToMainMenu();
+    }, 2000);
+    return;
+  }
+
+  draw();
+}
+
 function move(dx, dy) {
   if (gamePaused) return;
 

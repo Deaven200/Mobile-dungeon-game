@@ -1,5 +1,34 @@
 /* ===================== INPUTS ===================== */
 
+const WAIT_TICK_MS = 300;
+let waitHold = { timerId: null, pointerId: null };
+
+function stopWaitHold() {
+  if (waitHold.timerId != null) {
+    clearInterval(waitHold.timerId);
+  }
+  waitHold.timerId = null;
+  waitHold.pointerId = null;
+}
+
+function startWaitHold(pointerId) {
+  stopAutoMove();
+  if (investigateArmed) setInvestigateArmed(false);
+  if (menuOpen || gamePaused || inMainMenu) return;
+  if (waitHold.timerId != null) return;
+
+  waitHold.pointerId = pointerId ?? null;
+  // Immediate tick, then repeat.
+  waitTurn();
+  waitHold.timerId = setInterval(() => {
+    if (menuOpen || gamePaused || inMainMenu) {
+      stopWaitHold();
+      return;
+    }
+    waitTurn();
+  }, WAIT_TICK_MS);
+}
+
 function bindInputs() {
   if (controlsEl) {
     // Use pointerdown for snappy mobile controls.
@@ -10,17 +39,31 @@ function bindInputs() {
       e.preventDefault();
 
       const action = btn.dataset.action;
+      if (action === "wait") {
+        startWaitHold(e.pointerId);
+        return;
+      }
       if (action === "menu") {
         if (inMainMenu) return;
+        stopWaitHold();
         toggleMenu();
         return;
       }
       if (action === "investigate") {
         if (menuOpen || gamePaused || inMainMenu) return;
+        stopWaitHold();
         setInvestigateArmed(!investigateArmed);
         return;
       }
     });
+
+    // Stop hold-to-wait when the press ends anywhere.
+    const endWait = (e) => {
+      if (waitHold.pointerId != null && e.pointerId != null && waitHold.pointerId !== e.pointerId) return;
+      stopWaitHold();
+    };
+    window.addEventListener("pointerup", endWait);
+    window.addEventListener("pointercancel", endWait);
   }
 
   // Tap-to-move on the map: tap a tile to auto-walk to it (step-by-step).

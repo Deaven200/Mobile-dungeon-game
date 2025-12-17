@@ -264,6 +264,15 @@ button.menu-button-only {
   user-select: none;
 }
 
+button.wait-button {
+  border-color: #ffd400;
+  color: #ffd400;
+}
+
+button.wait-button:active {
+  background: rgba(255, 212, 0, 0.12);
+}
+
 button.menu-button-only:active {
   transform: translateY(1px);
   background: rgba(20, 20, 20, 0.9);
