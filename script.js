@@ -595,7 +595,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Auto-save before continuing
     if (settings.autoSave) {
-      saveGame();
+      saveGame("Auto-save");
     }
     
     // Auto-continue after 3 seconds
@@ -687,7 +687,8 @@ document.addEventListener("DOMContentLoaded", () => {
       player = { ...player, ...saveData.player };
       floor = saveData.floor || floor;
       
-      startGame();
+      // Start a run without wiping the loaded player stats.
+      startGame({ fromLoad: true });
       addLog(`Game loaded: ${saveData.name}`, "loot");
       return true;
     } catch (e) {
@@ -791,9 +792,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function startGame() {
-    // Reset player stats for new game
-    if (!gameStarted) {
+  function startGame(options = {}) {
+    const { fromLoad = false } = options || {};
+
+    // Reset player stats for new game (but do not reset when loading a save)
+    if (!gameStarted && !fromLoad) {
       player = {
         x: 0,
         y: 0,
@@ -810,8 +813,10 @@ document.addEventListener("DOMContentLoaded", () => {
         statusEffects: {},
       };
       floor = 1;
-      gameStarted = true;
     }
+
+    // Mark game as started even if we came from a load.
+    if (!gameStarted) gameStarted = true;
     
     inMainMenu = false;
     const mainMenuEl = document.getElementById("mainMenu");
@@ -852,7 +857,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function quitToMenu() {
     if (confirm("Quit to main menu? Progress will be saved.")) {
       if (settings.autoSave) {
-        saveGame();
+        saveGame("Auto-save");
       }
       returnToMainMenu();
     }
@@ -964,7 +969,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function quitGame() {
     if (confirm("Quit the game? Your progress will be saved automatically.")) {
       if (settings.autoSave && gameStarted) {
-        saveGame();
+        saveGame("Auto-save");
       }
       // Close the window/tab if possible, otherwise just show a message
       try {
@@ -2988,17 +2993,28 @@ document.addEventListener("DOMContentLoaded", () => {
           buyShopItem(Number(btn.dataset.buyItem));
           return;
         }
+      });
 
-        if (btn.dataset.setting) {
-          settings[btn.dataset.setting] = btn.checked;
-          window.gameSettings = settings; // Update global reference
+      // Settings toggles in the in-game menu are <input type="checkbox"> elements.
+      gameEl.addEventListener("change", (e) => {
+        if (!menuOpen) return;
+        const input = e.target.closest?.("input[data-setting]");
+        if (!input) return;
+        const key = input.dataset.setting;
+        if (!key) return;
+
+        settings[key] = !!input.checked;
+        window.gameSettings = settings; // Update global reference
+        try {
           localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
-          if (settings.autoSave && btn.dataset.setting !== "autoSave") {
-            setTimeout(() => saveGame(), 100);
-          }
-          draw();
-          return;
+        } catch {
+          // ignore
         }
+
+        if (settings.autoSave && key !== "autoSave") {
+          setTimeout(() => saveGame("Auto-save"), 100);
+        }
+        draw();
       });
     }
 
