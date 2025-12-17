@@ -27,7 +27,7 @@ let settings = {
   screenShakeIntensity: 1, // 0.5..2
   hitFlash: true,
   // Difficulty
-  difficultyPreset: "normal", // easy | normal | hard | custom
+  difficultyPreset: "normal", // easy | normal | hard
   enemyHpMult: 1,
   enemyDmgMult: 1,
   lootMult: 1,
