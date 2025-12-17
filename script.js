@@ -18,6 +18,8 @@ document.addEventListener("DOMContentLoaded", () => {
     showEnemyHealth: true,
     soundEnabled: false,
     autoSave: true,
+    haptics: true,
+    confirmDescend: true,
   };
   let floorStats = { enemiesKilled: 0, itemsFound: 0, trapsTriggered: 0, damageTaken: 0, damageDealt: 0 };
   let hiddenTrapCount = 0;
@@ -595,8 +597,37 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function openShopMenu() {
+    atShop = true;
     activeTab = "shop";
     setMenuOpen(true);
+    draw();
+  }
+
+  function buyShopItem(shopIndex) {
+    if (!atShop) return;
+    const idx = Number(shopIndex);
+    if (!Number.isFinite(idx)) return;
+
+    const shopItems = [
+      ...POTIONS.slice(0, 3).map((p, i) => ({ ...p, price: 50 + i * 25, shopIndex: i })),
+      ...POTIONS.slice(3).map((p, i) => ({ ...p, price: 75 + i * 25, shopIndex: i + 3 })),
+    ];
+
+    const item = shopItems.find((it) => it.shopIndex === idx);
+    if (!item) return;
+
+    const price = Number(item.price || 0);
+    if (player.score < price) {
+      addLog("Not enough score", "block");
+      return;
+    }
+
+    player.score -= price;
+    // Store the base item (no price/shopIndex fields).
+    const { price: _p, shopIndex: _s, ...baseItem } = item;
+    player.inventory.push(baseItem);
+    addLog(`Bought ${baseItem.name}`, "loot");
+    vibrate(12);
     draw();
   }
 
@@ -608,10 +639,13 @@ document.addEventListener("DOMContentLoaded", () => {
       generateFloor();
       return;
     }
+    stopAutoMove();
+    setInvestigateArmed(false);
+    gamePaused = true;
     
     transitionEl.style.display = "flex";
     transitionEl.innerHTML = `
-      <h2>Floor ${floor} Complete!</h2>
+      <h2>Descend to Floor ${floor + 1}?</h2>
       <div class="transition-stats">
         Enemies Killed: ${floorStats.enemiesKilled || 0}<br>
         Items Found: ${floorStats.itemsFound || 0}<br>
@@ -619,7 +653,14 @@ document.addEventListener("DOMContentLoaded", () => {
         ${floorStats.damageDealt ? `Damage Dealt: ${floorStats.damageDealt}<br>` : ""}
         ${floorStats.damageTaken ? `Damage Taken: ${floorStats.damageTaken}<br>` : ""}
       </div>
-      <button type="button" id="continueBtn">Continue to Floor ${floor + 1}</button>
+      ${
+        settings.confirmDescend
+          ? `<div style="display:flex; gap: 10px; justify-content:center; flex-wrap: wrap;">
+              <button type="button" id="continueBtn">Descend</button>
+              <button type="button" id="cancelDescendBtn" style="border-color: rgba(255,255,255,0.4); color: rgba(255,255,255,0.9);">Stay</button>
+            </div>`
+          : `<button type="button" id="continueBtn">Continue to Floor ${floor + 1}</button>`
+      }
     `;
     
     const btn = document.getElementById("continueBtn");
@@ -630,6 +671,15 @@ document.addEventListener("DOMContentLoaded", () => {
         generateFloor();
       };
     }
+
+    const cancelBtn = document.getElementById("cancelDescendBtn");
+    if (cancelBtn) {
+      cancelBtn.onclick = () => {
+        transitionEl.style.display = "none";
+        gamePaused = false;
+        draw();
+      };
+    }
     
     // Auto-save before continuing
     if (settings.autoSave) {
@@ -637,13 +687,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     // Auto-continue after 3 seconds
-    setTimeout(() => {
-      if (transitionEl && transitionEl.style.display !== "none") {
-        transitionEl.style.display = "none";
-        floor++;
-        generateFloor();
-      }
-    }, 3000);
+    if (!settings.confirmDescend) {
+      setTimeout(() => {
+        if (transitionEl && transitionEl.style.display !== "none") {
+          transitionEl.style.display = "none";
+          floor++;
+          generateFloor();
+        }
+      }, 3000);
+    }
   }
 
   function getAllSaves() {
@@ -992,6 +1044,14 @@ document.addEventListener("DOMContentLoaded", () => {
             <input type="checkbox" ${settings.autoSave ? "checked" : ""} id="setting-autosave" style="width: 20px; height: 20px;">
             Auto-Save
           </label>
+          <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+            <input type="checkbox" ${settings.haptics ? "checked" : ""} id="setting-haptics" style="width: 20px; height: 20px;">
+            Haptics (vibration)
+          </label>
+          <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+            <input type="checkbox" ${settings.confirmDescend ? "checked" : ""} id="setting-confirm-descend" style="width: 20px; height: 20px;">
+            Confirm descend on trapdoor
+          </label>
           <button type="button" class="menu-screen-button" id="backToMenuBtn" style="margin-top: 15px;">Back to Menu</button>
         </div>
       </div>
@@ -1007,6 +1067,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const damageCheck = document.getElementById("setting-damage");
     const healthCheck = document.getElementById("setting-health");
     const autosaveCheck = document.getElementById("setting-autosave");
+    const hapticsCheck = document.getElementById("setting-haptics");
+    const confirmDescendCheck = document.getElementById("setting-confirm-descend");
     
     if (damageCheck) {
       damageCheck.addEventListener("change", (e) => {
@@ -1026,6 +1088,22 @@ document.addEventListener("DOMContentLoaded", () => {
     if (autosaveCheck) {
       autosaveCheck.addEventListener("change", (e) => {
         settings.autoSave = e.target.checked;
+        localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+      });
+    }
+
+    if (hapticsCheck) {
+      hapticsCheck.addEventListener("change", (e) => {
+        settings.haptics = e.target.checked;
+        localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+        // Provide a tiny confirmation pulse.
+        if (settings.haptics) vibrate(10);
+      });
+    }
+
+    if (confirmDescendCheck) {
+      confirmDescendCheck.addEventListener("change", (e) => {
+        settings.confirmDescend = e.target.checked;
         localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
       });
     }
@@ -2001,6 +2079,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (targetKind === "player") {
       const prefix = trap.hidden ? "A hidden trap springs!" : "Trap!";
       addLog(`${prefix} ${trap.type} deals ${dmg} damage`, dmg ? "danger" : "block");
+      if (dmg > 0) vibrate(30);
     } else {
       const name = target?.name || "Enemy";
       const prefix = trap.hidden ? `${name} triggers a hidden trap!` : `${name} triggers a trap!`;
@@ -2167,6 +2246,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (dmg > 0) {
           addLog(`${eName} hits you for ${dmg}`, "enemy");
           showDamageNumber(player.x, player.y, dmg, "enemy");
+          vibrate(20);
           floorStats.damageTaken += dmg;
           // Visual feedback
           try {
@@ -2402,6 +2482,7 @@ document.addEventListener("DOMContentLoaded", () => {
       player.inventory.push(loot);
       const lootName = loot?.name || "item";
       addLog(`Picked up ${lootName}`, "loot");
+      vibrate(10);
       floorStats.itemsFound++;
       delete map[`${pKey}_loot`];
       map[pKey] = ".";
@@ -2581,6 +2662,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let measureEl = null;
   let cachedCellMetrics = null;
+  let lastMapHtml = "";
 
   function getMonoCellMetricsPx(testFontPx = 100) {
     // Cache metrics on first call
@@ -2770,6 +2852,14 @@ document.addEventListener("DOMContentLoaded", () => {
             <input type="checkbox" ${settings.autoSave ? "checked" : ""} data-setting="autoSave" style="width: 20px; height: 20px;">
             Auto-Save
           </label>
+          <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+            <input type="checkbox" ${settings.haptics ? "checked" : ""} data-setting="haptics" style="width: 20px; height: 20px;">
+            Haptics (vibration)
+          </label>
+          <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+            <input type="checkbox" ${settings.confirmDescend ? "checked" : ""} data-setting="confirmDescend" style="width: 20px; height: 20px;">
+            Confirm descend on trapdoor
+          </label>
         </div>
         <div style="margin-top: 15px;">
           <button type="button" data-action="save-game" class="menu-button" style="width: 100%; margin: 5px 0;">Save Game</button>
@@ -2810,18 +2900,16 @@ document.addEventListener("DOMContentLoaded", () => {
     if (menuOpen) {
       activeTab = activeTab || "inventory";
       gameEl.innerHTML = renderMenuHtml();
+      lastMapHtml = "";
       return;
     }
 
     const enemyByPos = new Map();
     for (const e of enemies) enemyByPos.set(`${e.x},${e.y}`, e);
 
-    const escCh = (ch) => escapeHtml(String(ch ?? ""));
-    const tileSpan = (ch, color, extraStyle = "") => `<span style="color:${color};${extraStyle}">${escCh(ch)}</span>`;
     const dimCss = "opacity:0.5;";
     const popCss = "font-weight:700;";
     const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
-    const mouseCss = "";
     const hiddenFlashOn = Date.now() % HIDDEN_TRAP_FLASH_PERIOD_MS < HIDDEN_TRAP_FLASH_PULSE_MS;
     const mouseWallPulseOn = Date.now() % 240 < 120;
 
@@ -2830,6 +2918,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Map draw - center on player
     let out = "";
+    let runStyle = null;
+    let runText = "";
+    const flush = () => {
+      if (!runText) return;
+      if (runStyle) out += `<span style="${runStyle}">${escapeHtml(runText)}</span>`;
+      else out += escapeHtml(runText);
+      runText = "";
+    };
+    const pushCell = (ch, style) => {
+      if (style !== runStyle) {
+        flush();
+        runStyle = style;
+      }
+      runText += ch;
+    };
+
     for (let y = -viewRadius; y <= viewRadius; y++) {
       for (let x = -viewRadius; x <= viewRadius; x++) {
         const tx = player.x + x;
@@ -2840,7 +2944,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Fog-of-war beyond current sight: show only explored terrain, hide unseen.
         if (dist > BASE_VIEW_RADIUS) {
           if (!explored.has(key)) {
-            out += " ";
+            pushCell(" ", null);
             continue;
           }
 
@@ -2848,7 +2952,10 @@ document.addEventListener("DOMContentLoaded", () => {
           const hiddenAsWall = hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key);
           const ch = hiddenAsWall ? "#" : map[key] || "#";
           const t = ch === "#" ? "#" : ".";
-          out += t === "#" ? tileSpan("#", "lime", dimCss) : tileSpan(".", "#555", dimCss);
+          pushCell(
+            t === "#" ? "#" : ".",
+            `color:${t === "#" ? "lime" : "#555"};${dimCss}`,
+          );
           continue;
         }
 
@@ -2861,69 +2968,78 @@ document.addEventListener("DOMContentLoaded", () => {
             const isFalseWall = hiddenArea.falseWalls?.has(key);
             const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
             const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
-            out += tileSpan("#", color, dimCss);
+            pushCell("#", `color:${color};${dimCss}`);
           } else {
             const ch = map[key] || "#";
             // Only terrain: walls and floors. Everything else renders as floor.
             const t = ch === "#" ? "#" : ".";
-            out += t === "#" ? tileSpan("#", "lime", dimCss) : tileSpan(".", "#555", dimCss);
+            pushCell(
+              t === "#" ? "#" : ".",
+              `color:${t === "#" ? "lime" : "#555"};${dimCss}`,
+            );
           }
           continue;
         }
 
         if (tx === player.x && ty === player.y) {
           const extra = `${popCss}${getBurning(player)?.turns ? burningOutlineCss : ""}`;
-          out += tileSpan("@", "cyan", extra);
+          pushCell("@", `color:cyan;${extra}`);
         } else if (enemyByPos.has(key)) {
           const e = enemyByPos.get(key);
           const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
-          out += tileSpan(e.symbol || "E", e.color, extra);
+          pushCell(e.symbol || "E", `color:${e.color || "red"};${extra}`);
         } else if (mouse && tx === mouse.x && ty === mouse.y) {
-          out += tileSpan("m", "#eee", `${popCss}${mouseCss}`);
+          pushCell("m", `color:#eee;${popCss}`);
         } else if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
           // Hidden hallway/room are drawn as walls until revealed.
           const isFalseWall = hiddenArea.falseWalls?.has(key);
           const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
           const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
-          out += tileSpan("#", color);
+          pushCell("#", `color:${color};`);
         } else if (map[`${key}_loot`]) {
           const p = map[`${key}_loot`];
-          out += tileSpan(p.symbol, p.color, popCss);
+          pushCell(p.symbol, `color:${p.color || "cyan"};${popCss}`);
         } else {
           const ch = map[key] || "#";
           const trap = map[`${key}_trap`];
           if (trap) {
             if (trap.hidden) {
               // Hidden traps look like floor, but flash orange every few seconds.
-              out += tileSpan(".", hiddenFlashOn ? "orange" : "#555");
+              pushCell(".", `color:${hiddenFlashOn ? "orange" : "#555"};`);
             } else {
-              out += tileSpan("~", trap.color || "orange");
+              pushCell("~", `color:${trap.color || "orange"};`);
             }
-          }           else if (ch === ".") out += tileSpan(".", "#555"); // dark gray floors
-          else if (ch === "~") out += tileSpan("~", "orange"); // fallback (should normally be typed via _trap)
-          else if (ch === "#") out += tileSpan("#", "lime"); // green walls
+          } else if (ch === ".") pushCell(".", "color:#555;"); // floor
+          else if (ch === "~") pushCell("~", "color:orange;"); // fallback
+          else if (ch === "#") pushCell("#", "color:lime;"); // wall
           else if (ch === "T") {
             // Only show trapdoor if no enemy is on it
             if (!enemyByPos.has(key)) {
-              out += tileSpan("T", "#00ff3a", popCss); // trapdoor
+              pushCell("T", `color:#00ff3a;${popCss}`); // trapdoor
             } else {
               // Enemy is on trapdoor, show enemy instead
               const e = enemyByPos.get(key);
               const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
               const isBoss = e.symbol && e.symbol === e.symbol.toUpperCase() && e.symbol !== e.symbol.toLowerCase();
               const bossGlow = isBoss ? "text-shadow: 0 0 4px #ff0000, 0 0 8px #ff0000;" : "";
-              out += tileSpan(e.symbol || "E", e.color, `${extra}${bossGlow}`);
+              pushCell(e.symbol || "E", `color:${e.color || "red"};${extra}${bossGlow}`);
             }
           }
-          else if (ch === "C") out += tileSpan("C", "orange", popCss); // campfire
-          else if (ch === "$") out += tileSpan("$", "#ffd700", popCss); // shop
-          else out += tileSpan(ch, "white");
+          else if (ch === "C") pushCell("C", `color:orange;${popCss}`); // campfire
+          else if (ch === "$") pushCell("$", `color:#ffd700;${popCss}`); // shop
+          else pushCell(ch, "color:white;");
         }
       }
+      flush();
+      runStyle = null;
       out += "\n";
     }
+    flush();
 
-    gameEl.innerHTML = out;
+    if (out !== lastMapHtml) {
+      gameEl.innerHTML = out;
+      lastMapHtml = out;
+    }
     updateMapFontSize();
   }
 
@@ -3196,6 +3312,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /* ===================== INIT ===================== */
+
+  function vibrate(pattern) {
+    if (!settings?.haptics) return;
+    const vib = navigator?.vibrate;
+    if (typeof vib !== "function") return;
+    try {
+      vib(pattern);
+    } catch {
+      // ignore
+    }
+  }
 
   // Load settings from localStorage
   try {
