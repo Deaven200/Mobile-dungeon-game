@@ -262,6 +262,7 @@ const TILE = Object.freeze({
   BOUNTY: "!",
   CRATE: "X",
   BARREL: "O",
+  SHRINE: "&",
 });
 
 // Map access helpers (still backed by the existing string-keyed map object).
@@ -343,7 +344,8 @@ function isWalkableTile(ch) {
     ch === TILE.ENTRANCE ||
     ch === TILE.UPSTAIRS ||
     ch === TILE.BLACKSMITH ||
-    ch === TILE.BOUNTY
+    ch === TILE.BOUNTY ||
+    ch === TILE.SHRINE
   );
 }
 
@@ -855,22 +857,50 @@ function getPlayerBonuses() {
     dmg: 0,
     critChance: 0,
     lifeOnKill: 0,
+    // New build levers
+    dodgeChance: 0, // 0..1
+    thorns: 0, // flat reflect on being hit
+    lifeSteal: 0, // percent of damage dealt returned as hp
+    knockbackChance: 0, // chance to shove enemies on hit
+    knockbackDmg: 0, // extra slam damage when knocking into something solid
+    // Multipliers (curses live here too)
+    dmgTakenMult: 1, // incoming damage multiplier
+    hungerCostMult: 1, // hunger cost multiplier
   };
   try {
     const tr = player?.trinkets;
-    const list = [tr?.a, tr?.b].filter(Boolean);
+    const hands = player?.hands || { main: null, off: null };
+    const list = [tr?.a, tr?.b, hands?.main, hands?.off].filter(Boolean);
     for (const it of list) {
-      const b = it?.bonuses;
-      if (!b || typeof b !== "object") continue;
-      if (Number.isFinite(Number(b.lootMult))) out.lootMult += Number(b.lootMult);
-      if (Number.isFinite(Number(b.toughness))) out.toughness += Number(b.toughness);
-      if (Number.isFinite(Number(b.dmg))) out.dmg += Number(b.dmg);
-      if (Number.isFinite(Number(b.critChance))) out.critChance += Number(b.critChance);
-      if (Number.isFinite(Number(b.lifeOnKill))) out.lifeOnKill += Number(b.lifeOnKill);
+      const applyObj = (b) => {
+        if (!b || typeof b !== "object") return;
+        if (Number.isFinite(Number(b.lootMult))) out.lootMult += Number(b.lootMult);
+        if (Number.isFinite(Number(b.toughness))) out.toughness += Number(b.toughness);
+        if (Number.isFinite(Number(b.dmg))) out.dmg += Number(b.dmg);
+        if (Number.isFinite(Number(b.critChance))) out.critChance += Number(b.critChance);
+        if (Number.isFinite(Number(b.lifeOnKill))) out.lifeOnKill += Number(b.lifeOnKill);
+        if (Number.isFinite(Number(b.dodgeChance))) out.dodgeChance += Number(b.dodgeChance);
+        if (Number.isFinite(Number(b.thorns))) out.thorns += Number(b.thorns);
+        if (Number.isFinite(Number(b.lifeSteal))) out.lifeSteal += Number(b.lifeSteal);
+        if (Number.isFinite(Number(b.knockbackChance))) out.knockbackChance += Number(b.knockbackChance);
+        if (Number.isFinite(Number(b.knockbackDmg))) out.knockbackDmg += Number(b.knockbackDmg);
+        if (Number.isFinite(Number(b.dmgTakenMult))) out.dmgTakenMult *= Math.max(0.05, Number(b.dmgTakenMult));
+        if (Number.isFinite(Number(b.hungerCostMult))) out.hungerCostMult *= Math.max(0.05, Number(b.hungerCostMult));
+      };
+      applyObj(it?.bonuses);
+      applyObj(it?.curse);
     }
   } catch {
     // ignore
   }
+  // Clamp the spicy stuff to keep runs sane.
+  out.dodgeChance = clamp(Number(out.dodgeChance || 0), 0, 0.6);
+  out.lifeSteal = clamp(Number(out.lifeSteal || 0), 0, 0.6);
+  out.knockbackChance = clamp(Number(out.knockbackChance || 0), 0, 0.8);
+  out.dmgTakenMult = clamp(Number(out.dmgTakenMult || 1), 0.1, 3);
+  out.hungerCostMult = clamp(Number(out.hungerCostMult || 1), 0.25, 3);
+  out.thorns = clamp(Number(out.thorns || 0), 0, 10);
+  out.knockbackDmg = clamp(Number(out.knockbackDmg || 0), 0, 10);
   return out;
 }
 window.getPlayerBonuses = getPlayerBonuses;
@@ -1235,7 +1265,9 @@ function updateHotbarUi() {
 
 function tickHunger(cost = 0) {
   // Hunger decreases with each player action.
-  const c = Math.max(0, Number(cost || 0));
+  const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { hungerCostMult: 1 };
+  const mult = Math.max(0, Number(b.hungerCostMult || 1));
+  const c = Math.max(0, Number(cost || 0)) * mult;
   const oldHunger = player.hunger;
   player.hunger = Math.max(0, Number(player.hunger || 0) - c);
   
@@ -1292,6 +1324,8 @@ function setMenuOpen(open) {
     atShop = false;
     atBlacksmith = false;
     atBountyBoard = false;
+    atShrine = false;
+    shrineKey = null;
   }
 
   document.body.classList.toggle("menu-open", open);
@@ -1325,6 +1359,69 @@ function openBountyBoardMenu() {
   setMenuOpen(true);
   draw();
 }
+
+function openShrineMenuAt(x, y) {
+  atShrine = true;
+  shrineKey = keyOf(x, y);
+  activeTab = "shrine";
+  setMenuOpen(true);
+  draw();
+}
+
+function cleanseCurseByRef(ref) {
+  if (!atShrine) return;
+  const r = String(ref || "");
+  if (!r) return;
+
+  const getItem = () => {
+    if (r.startsWith("inv:")) {
+      const idx = Number(r.split(":")[1]);
+      if (!Number.isFinite(idx)) return null;
+      return { kind: "inv", idx, item: player.inventory?.[idx] || null };
+    }
+    if (r === "hand:main") return { kind: "hand", slot: "main", item: player?.hands?.main || null };
+    if (r === "hand:off") return { kind: "hand", slot: "off", item: player?.hands?.off || null };
+    if (r === "trinket:a") return { kind: "trinket", slot: "a", item: player?.trinkets?.a || null };
+    if (r === "trinket:b") return { kind: "trinket", slot: "b", item: player?.trinkets?.b || null };
+    return null;
+  };
+
+  const info = getItem();
+  const it = info?.item;
+  if (!it) return;
+  if (!it.curse && !it.cursed) {
+    addLog("That item isn't cursed.", "info");
+    return;
+  }
+
+  const oldName = String(it.name || "Item");
+  it.curse = null;
+  it.cursed = false;
+  if (oldName.toLowerCase().startsWith("cursed ")) it.name = oldName.slice(7);
+  addLog(`Cleansed the curse from ${it.name || oldName}`, "loot");
+  playSound?.("loot");
+  vibrate([10, 30, 10]);
+
+  // Consume the shrine.
+  const k = String(shrineKey || "");
+  if (k) {
+    try {
+      delete map[`${k}_shrine`];
+    } catch {
+      // ignore
+    }
+    try {
+      setTileAtKey(k, TILE.FLOOR);
+    } catch {
+      // ignore
+    }
+  }
+
+  setMenuOpen(false);
+  draw();
+}
+window.openShrineMenuAt = openShrineMenuAt;
+window.cleanseCurseByRef = cleanseCurseByRef;
 
 function getItemSellValue(item) {
   if (!item) return 0;
@@ -2432,6 +2529,7 @@ function getInvestigationInfoAt(tx, ty) {
   if (ch === TILE.SHOP) return { kind: "shop" };
   if (ch === TILE.BLACKSMITH) return { kind: "blacksmith" };
   if (ch === TILE.BOUNTY) return { kind: "bounty" };
+  if (ch === TILE.SHRINE) return { kind: "shrine" };
   if (ch === TILE.WALL) return { kind: "wall" };
   return { kind: "floor" };
 }
@@ -2484,6 +2582,8 @@ function canEnemyMove(x, y) {
 
   // Enemies avoid visible traps (~), but can still step on hidden traps (they look like floor).
   if (ch === TILE.TRAP_VISIBLE) return false;
+  // Enemies avoid shrines so the player can interact.
+  if (ch === TILE.SHRINE) return false;
   const trap = trapAtKey(k);
   if (trap && !trap.hidden) return false;
 

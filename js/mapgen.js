@@ -278,6 +278,16 @@ function generateFloor() {
       map[`${shopX},${shopY}_shop`] = true;
       spawnMaterial(r.x, r.y, r.w, r.h, 0.25);
       spawnPropsInRoom(r.x, r.y, r.w, r.h, rand(0, 1));
+    } else if (r.type === "shrine") {
+      // Shrine room: cleanse one curse, no enemies.
+      const sx = Math.floor(r.x + r.w / 2);
+      const sy = Math.floor(r.y + r.h / 2);
+      map[keyOf(sx, sy)] = TILE.SHRINE;
+      map[`${sx},${sy}_shrine`] = true;
+      // Some loot to make it feel like a discovery.
+      spawnTrinket(r.x, r.y, r.w, r.h, 0.35);
+      spawnMaterial(r.x, r.y, r.w, r.h, 0.35);
+      spawnPropsInRoom(r.x, r.y, r.w, r.h, rand(0, 1));
     }
   }
 
@@ -646,7 +656,19 @@ function spawnSword(x, y, w, h, chance = 0.06) {
   const lootMult = clamp(Math.max(0, Number(settings?.lootMult || 1)) * (1 + Number(b.lootMult || 0)), 0, 3);
   if (!rollChance(chance * lootMult)) return;
   const lvl = rollGearLevelForFloor(floor);
-  const sword = makeSword(lvl, pickRarityForFloor(floor));
+  let sword = makeSword(lvl, pickRarityForFloor(floor));
+  // Small chance for cursed weapons deeper down: powerful but risky until cleansed at a shrine.
+  if (floor >= 4 && rollChance(0.06)) {
+    const bonus = 1 + Math.floor(lvl / 4);
+    sword = {
+      ...sword,
+      name: `Cursed ${sword.name}`,
+      color: "#ff3366",
+      maxDamage: Math.max(1, Math.floor(Number(sword.maxDamage || 1) + bonus)),
+      cursed: true,
+      curse: { dmgTakenMult: 1.15 },
+    };
+  }
 
   for (let attempt = 0; attempt < 40; attempt++) {
     const sx = rand(x, x + w - 1);
@@ -727,7 +749,19 @@ function spawnTrinket(x, y, w, h, chance = 0.25) {
   const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { lootMult: 0 };
   const lootMult = clamp(Math.max(0, Number(settings?.lootMult || 1)) * (1 + Number(b.lootMult || 0)), 0, 3);
   if (!rollChance(chance * lootMult)) return;
-  const base = TRINKETS[rand(0, TRINKETS.length - 1)];
+  // Weighted pick so cursed trinkets can be rarer without a separate pool.
+  const pool = TRINKETS.map((t) => ({ t, w: Math.max(0.05, Number(t?.weight ?? 1)) }));
+  const total = pool.reduce((a, x) => a + x.w, 0);
+  const r01 = typeof window !== "undefined" && typeof window.rand01 === "function" ? window.rand01() : Math.random();
+  let roll = r01 * total;
+  let base = pool[0]?.t || TRINKETS[0];
+  for (const p of pool) {
+    roll -= p.w;
+    if (roll <= 0) {
+      base = p.t;
+      break;
+    }
+  }
   const it = { ...base };
   for (let attempt = 0; attempt < 50; attempt++) {
     const tx = rand(x, x + w - 1);
@@ -766,6 +800,14 @@ function generateSpecialRooms() {
     const idx = rand(0, eligibleRooms.length - 1);
     if (eligibleRooms[idx].type === "enemy") {
       eligibleRooms[idx].type = "shop";
+    }
+  }
+
+  // 6% chance for a shrine room (cleanses one curse).
+  if (rollChance(0.06) && eligibleRooms.length > 0) {
+    const idx = rand(0, eligibleRooms.length - 1);
+    if (eligibleRooms[idx].type === "enemy") {
+      eligibleRooms[idx].type = "shrine";
     }
   }
 }
@@ -1011,10 +1053,12 @@ function triggerTrapAtEntity(x, y, target, targetKind = "player") {
   const trap = trapAtKey(key);
   if (!trap) return false;
 
-  const toughness = Number(target?.toughness || 0);
+  const b = targetKind === "player" && typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { toughness: 0, dmgTakenMult: 1 };
+  const toughness = Number(target?.toughness || 0) + (targetKind === "player" ? Number(b.toughness || 0) : 0);
   const raw = Math.max(0, Number(trap.dmg || 0) - toughness);
   const mult = targetKind === "player" ? Math.max(0, Number(settings?.hazardMult || 1)) : 1;
-  const dmg = Math.max(0, Math.floor(raw * mult));
+  const takenMult = targetKind === "player" ? Math.max(0.1, Number(b.dmgTakenMult || 1)) : 1;
+  const dmg = Math.max(0, Math.floor(raw * mult * takenMult));
 
   if (targetKind === "player") {
     const prefix = trap.hidden ? "A hidden trap springs!" : "Trap!";

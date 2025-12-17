@@ -579,6 +579,34 @@ function renderMenuHtml() {
       <button type="button" data-blacksmith-upgrade="1" style="width: 100%; padding: 12px 14px; border-radius: 12px; border: 2px solid rgba(0,255,255,0.35); background: rgba(0,0,0,0.75); color: var(--accent); ${can ? "" : "opacity:0.5;"}">Reforge</button>
       <div style="opacity:0.75; margin-top: 10px;">Materials: Iron ${ironHave} • Dust ${essHave}</div>
     </div>`;
+  } else if (activeTab === "shrine") {
+    const cursedInv = (player.inventory || [])
+      .map((it, idx) => ({ it, idx }))
+      .filter(({ it }) => it && (it.cursed || it.curse));
+    const cursedHands = [
+      { ref: "hand:main", label: "Main hand", it: player?.hands?.main || null },
+      { ref: "hand:off", label: "Off hand", it: player?.hands?.off || null },
+    ].filter((x) => x.it && (x.it.cursed || x.it.curse));
+    const cursedTrinkets = [
+      { ref: "trinket:a", label: "Trinket A", it: player?.trinkets?.a || null },
+      { ref: "trinket:b", label: "Trinket B", it: player?.trinkets?.b || null },
+    ].filter((x) => x.it && (x.it.cursed || x.it.curse));
+
+    const btn = (ref, label, it) =>
+      `<button type="button" class="menu-button" data-cleanse-ref="${escapeHtml(ref)}" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}" title="Cleanse this curse (consumes the shrine)">
+        Cleanse<br><small style="opacity:0.8;">${escapeHtml(label)}: ${escapeHtml(it?.name || "Item")}</small>
+      </button>`;
+
+    const blocks = [];
+    if (cursedHands.length) blocks.push(`<div style="margin-top: 10px; opacity:0.9;">Equipped weapons:</div><div class="menu-inventory">${cursedHands.map((x) => btn(x.ref, x.label, x.it)).join("")}</div>`);
+    if (cursedTrinkets.length) blocks.push(`<div style="margin-top: 10px; opacity:0.9;">Equipped trinkets:</div><div class="menu-inventory">${cursedTrinkets.map((x) => btn(x.ref, x.label, x.it)).join("")}</div>`);
+    if (cursedInv.length) blocks.push(`<div style="margin-top: 10px; opacity:0.9;">Inventory:</div><div class="menu-inventory">${cursedInv.map(({ it, idx }) => btn(`inv:${idx}`, "Inventory", it)).join("")}</div>`);
+
+    content = `<div class="menu-log" style="text-align:left;">
+      <div class="log-line" style="color: var(--accent); font-weight: bold;">Shrine</div>
+      <div class="log-line" style="opacity:0.9;">Cleanse <b>one</b> cursed item. The shrine will fade after use.</div>
+      ${blocks.length ? blocks.join("") : `<div class="menu-empty">You have no cursed items.</div>`}
+    </div>`;
   } else if (activeTab === "bounties") {
     try {
       ensureBountyOffers?.();
@@ -765,6 +793,7 @@ function renderMenuHtml() {
           ${cookingAtCampfire ? tabBtn("cook", "Cook") : ""}
           ${atShop ? tabBtn("shop", "Shop") : ""}
           ${atBlacksmith ? tabBtn("blacksmith", "Blacksmith") : ""}
+          ${atShrine ? tabBtn("shrine", "Shrine") : ""}
           ${atBountyBoard ? tabBtn("bounties", "Bounties") : ""}
           ${tabBtn("help", "Help")}
           ${tabBtn("settings", "Settings")}
@@ -953,6 +982,7 @@ function draw() {
         else if (ch === TILE.WALL) pushCell("#", "color:lime;"); // wall
         else if (ch === TILE.ENTRANCE) pushCell("D", `color:var(--accent);${popCss}`); // dungeon entrance
         else if (ch === TILE.UPSTAIRS) pushCell("U", `color:#8ff;${popCss}`); // exit upstairs
+        else if (ch === TILE.SHRINE) pushCell("&", `color:#ff66ff;${popCss}text-shadow: 0 0 6px rgba(255,102,255,0.35);`); // shrine
         else if (ch === TILE.TRAPDOOR) {
           // Only show trapdoor if no enemy is on it
           if (!enemyByPos.has(key)) {

@@ -138,6 +138,12 @@
       "Shop tile detected. Prepare to trade shiny things for survival.",
       "A shop. The prices are probably emotional damage.",
     ],
+
+    shrine: [
+      "A shrine. It hums softly, like it’s judging your life choices.",
+      "A cleansing shrine. One curse goes in, one slightly safer adventurer comes out.",
+      "A shrine. It can cleanse a curse… for a price paid in mystery, not gold.",
+    ],
     
     valuable: [
       "A valuable. Not helpful in a fight—very helpful in a shop.",
@@ -301,6 +307,7 @@
     if (kind === "enemy") return describeEnemy(info?.enemy);
     if (kind === "campfire") return pick(TEXTS.campfire);
     if (kind === "shop") return pick(TEXTS.shop);
+    if (kind === "shrine") return pick(TEXTS.shrine);
     if (kind === "valuable") return pick(TEXTS.valuable);
     if (kind === "weapon") {
       const w = info?.weapon;

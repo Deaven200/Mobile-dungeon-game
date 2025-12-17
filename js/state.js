@@ -12,6 +12,8 @@ let cookingAtCampfire = false;
 let atShop = false;
 let atBlacksmith = false;
 let atBountyBoard = false;
+let atShrine = false;
+let shrineKey = null; // keyOf(x,y) for the active shrine interaction
 let inMainMenu = true;
 let gameStarted = false;
 // Seeded RNG so "true saves" can restore deterministically.

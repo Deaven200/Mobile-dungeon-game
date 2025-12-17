@@ -154,6 +154,10 @@ function waitTurn() {
     openBlacksmithMenu();
     return;
   }
+  if (map[`${shopKey}_shrine`]) {
+    openShrineMenuAt?.(player.x, player.y);
+    return;
+  }
   if (map[`${shopKey}_bounty`]) {
     openBountyBoardMenu();
     return;
@@ -233,7 +237,17 @@ function move(dx, dy) {
         if (canPaintLootTile) setTileAtKey(nKey, f.symbol);
         setLootAtKey(nKey, f);
       } else if (!lootAtKey(nKey) && rollChance(0.08) && Array.isArray(TRINKETS) && TRINKETS.length) {
-        const t = TRINKETS[rand(0, TRINKETS.length - 1)];
+        const pool = TRINKETS.map((t) => ({ t, w: Math.max(0.05, Number(t?.weight ?? 1)) }));
+        const total = pool.reduce((a, x) => a + x.w, 0);
+        let roll = (typeof window !== "undefined" && typeof window.rand01 === "function" ? window.rand01() : Math.random()) * total;
+        let t = pool[0]?.t || TRINKETS[0];
+        for (const p of pool) {
+          roll -= p.w;
+          if (roll <= 0) {
+            t = p.t;
+            break;
+          }
+        }
         if (canPaintLootTile) setTileAtKey(nKey, t.symbol);
         setLootAtKey(nKey, { ...t });
       }
@@ -244,11 +258,72 @@ function move(dx, dy) {
   }
 
   if (enemy) {
+    const tryKnockback = (enemyObj, slamBonus = 0) => {
+      const b2 = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { knockbackChance: 0, knockbackDmg: 0 };
+      const chance = Math.max(0, Number(b2.knockbackChance || 0));
+      if (!chance || !rollChance(chance)) return false;
+
+      const dirX = Math.sign(enemyObj.x - player.x);
+      const dirY = Math.sign(enemyObj.y - player.y);
+      if (!dirX && !dirY) return false;
+
+      const tx = enemyObj.x + dirX;
+      const ty = enemyObj.y + dirY;
+      const tk = keyOf(tx, ty);
+
+      // Can't shove into the player or another enemy.
+      if (tx === player.x && ty === player.y) return false;
+      if (enemies.some((e) => e !== enemyObj && e.x === tx && e.y === ty)) return false;
+
+      // Hidden area blocks movement until revealed (treat as wall for knockback).
+      const blockedByHidden = hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(tk) && !hiddenArea.falseWalls?.has(tk);
+      const tile = tileAtKey(tk);
+      const prop = typeof propAtKey === "function" ? propAtKey(tk) : null;
+      const solid = blockedByHidden || tile === TILE.WALL || tile === TILE.CRATE || tile === TILE.BARREL;
+
+      const slam = Math.max(0, Math.floor(Number(b2.knockbackDmg || 0) + Number(slamBonus || 0)));
+      const slamDmg = Math.max(1, slam || 1);
+
+      if (solid) {
+        // Slam damage + possibly break props.
+        enemyObj.hp -= slamDmg;
+        addLog(`Knockback slam! ${enemyObj.name || "Enemy"} takes ${slamDmg}`, "player");
+        showDamageNumber(enemyObj.x, enemyObj.y, slamDmg, "player");
+        try {
+          addStatus(enemyObj, "slow", 1, 0);
+        } catch {
+          // ignore
+        }
+        if (prop) {
+          prop.hp = Math.max(0, Math.floor(Number(prop.hp || 1) - 1));
+          if (prop.hp <= 0) {
+            clearPropAtKey?.(tk);
+            setTileAtKey(tk, TILE.FLOOR);
+            addLog(`The ${prop.kind} shatters!`, "loot");
+          }
+        }
+        return true;
+      }
+
+      // Move enemy into the destination tile (yes, even onto traps).
+      enemyObj.x = tx;
+      enemyObj.y = ty;
+      addLog(`Knockback!`, "loot");
+      playSound?.("hit");
+      // If we shoved them onto a trap, trigger it immediately.
+      try {
+        triggerTrapAtEntity?.(tx, ty, enemyObj, "enemy");
+      } catch {
+        // ignore
+      }
+      return true;
+    };
+
     // Critical hits & misses
     const unarmedMax = 2;
     const weapon = player?.hands?.main && String(player.hands.main.effect || "") === "weapon" ? player.hands.main : null;
     const weaponMax = weapon ? Math.max(1, Math.floor(Number(weapon.maxDamage || 1))) : null;
-    const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { dmg: 0, critChance: 0, lifeOnKill: 0 };
+    const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { dmg: 0, critChance: 0, lifeOnKill: 0, lifeSteal: 0 };
     const bonus = Math.max(0, Math.floor(Number(player.dmg || 0) + Number(b.dmg || 0))); // strength bonus (+trinkets)
     const maxDmg = weaponMax != null ? weaponMax + bonus : unarmedMax + bonus;
     let dealt = rollBellInt(0, maxDmg);
@@ -288,6 +363,18 @@ function move(dx, dy) {
     // Show damage number and track stats
     if (dealt > 0) {
       showDamageNumber(enemy.x, enemy.y, dealt, crit ? "crit" : "player");
+      // Life steal
+      const ls = Math.max(0, Number(b.lifeSteal || 0));
+      if (ls > 0 && player.maxHp) {
+        const heal = dealt * ls;
+        if (heal > 0) {
+          const old = player.hp;
+          player.hp = Math.min(player.maxHp, player.hp + heal);
+          if (player.hp > old) addLog(`Life steal +${(player.hp - old).toFixed(2)} hp`, "loot");
+        }
+      }
+      // Tactical shove
+      tryKnockback(enemy);
       floorStats.damageDealt += dealt;
       try {
         runStats.damageDealt = Math.max(0, Number(runStats.damageDealt || 0) + dealt);
@@ -464,6 +551,10 @@ function move(dx, dy) {
   }
   if (map[`${shopKey}_blacksmith`]) {
     openBlacksmithMenu();
+    return;
+  }
+  if (map[`${shopKey}_shrine`]) {
+    openShrineMenuAt?.(player.x, player.y);
     return;
   }
   if (map[`${shopKey}_bounty`]) {

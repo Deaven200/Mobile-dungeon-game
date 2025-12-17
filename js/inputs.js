@@ -177,6 +177,15 @@ function bindInputs() {
         }
       }
       
+      // Shrine
+      if (tappedTile === TILE.SHRINE) {
+        const d = chebDist(player.x, player.y, tx, ty);
+        if (d <= 1) {
+          openShrineMenuAt?.(tx, ty);
+          return;
+        }
+      }
+
       // Bounty board
       if (tappedTile === "!") {
         const d = chebDist(player.x, player.y, tx, ty);
@@ -423,6 +432,10 @@ function bindInputs() {
       }
       if (btn.dataset.blacksmithUpgrade != null) {
         blacksmithUpgrade?.();
+        return;
+      }
+      if (btn.dataset.cleanseRef != null) {
+        cleanseCurseByRef?.(btn.dataset.cleanseRef);
         return;
       }
       if (btn.dataset.bountyAccept != null) {
