@@ -150,6 +150,14 @@ function waitTurn() {
     openShopMenu();
     return;
   }
+  if (map[`${shopKey}_blacksmith`]) {
+    openBlacksmithMenu();
+    return;
+  }
+  if (map[`${shopKey}_bounty`]) {
+    openBountyBoardMenu();
+    return;
+  }
   endPlayerTurn();
 }
 
@@ -161,6 +169,7 @@ function move(dx, dy) {
   const nKey = keyOf(nx, ny);
   const tile = tileAtKey(nKey);
   const enemy = enemies.find((e) => e.x === nx && e.y === ny);
+  const prop = typeof propAtKey === "function" ? propAtKey(nKey) : null;
 
   // Optional rule: disallow diagonal melee attacks.
   if (enemy && dx && dy && settings?.diagonalMelee === false) return;
@@ -187,15 +196,64 @@ function move(dx, dy) {
     return;
   }
 
+  // Smashing props (crates/barrels) counts as an attack.
+  if (!enemy && prop && (tile === TILE.CRATE || tile === TILE.BARREL)) {
+    const unarmedMax = 2;
+    const weapon = player?.hands?.main && String(player.hands.main.effect || "") === "weapon" ? player.hands.main : null;
+    const weaponMax = weapon ? Math.max(1, Math.floor(Number(weapon.maxDamage || 1))) : null;
+    const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { dmg: 0 };
+    const bonus = Math.max(0, Math.floor(Number(player.dmg || 0) + Number(b.dmg || 0)));
+    const maxDmg = weaponMax != null ? weaponMax + bonus : unarmedMax + bonus;
+    const dealt = Math.max(0, rollBellInt(0, maxDmg));
+    prop.hp = Math.max(0, Math.floor(Number(prop.hp || 1) - dealt));
+    addLog(`You smash the ${prop.kind} for ${dealt}`, dealt ? "player" : "block");
+    if (dealt > 0) {
+      showDamageNumber(nx, ny, dealt, "player");
+      playSound?.("hit");
+      shakeScreen?.(0.25, 90);
+    }
+    if (prop.hp <= 0) {
+      clearPropAtKey?.(nKey);
+      setTileAtKey(nKey, TILE.FLOOR);
+      addLog(`Destroyed ${prop.kind}!`, "loot");
+      try {
+        runStats.propsDestroyed = Math.max(0, Number(runStats.propsDestroyed || 0) + 1);
+      } catch {
+        // ignore
+      }
+      // Drop table
+      const canPaintLootTile = true;
+      if (!lootAtKey(nKey) && rollChance(0.55) && Array.isArray(MATERIALS) && MATERIALS.length) {
+        const m = MATERIALS[rand(0, MATERIALS.length - 1)];
+        const it = { ...m, qty: 1 + (rollChance(0.25) ? 1 : 0) };
+        if (canPaintLootTile) setTileAtKey(nKey, it.symbol);
+        setLootAtKey(nKey, it);
+      } else if (!lootAtKey(nKey) && rollChance(0.18)) {
+        const f = rollChance(0.5) ? MUSHROOM : BERRY;
+        if (canPaintLootTile) setTileAtKey(nKey, f.symbol);
+        setLootAtKey(nKey, f);
+      } else if (!lootAtKey(nKey) && rollChance(0.08) && Array.isArray(TRINKETS) && TRINKETS.length) {
+        const t = TRINKETS[rand(0, TRINKETS.length - 1)];
+        if (canPaintLootTile) setTileAtKey(nKey, t.symbol);
+        setLootAtKey(nKey, { ...t });
+      }
+    }
+    tickHunger(HUNGER_COST_ATTACK);
+    endPlayerTurn();
+    return;
+  }
+
   if (enemy) {
     // Critical hits & misses
     const unarmedMax = 2;
     const weapon = player?.hands?.main && String(player.hands.main.effect || "") === "weapon" ? player.hands.main : null;
     const weaponMax = weapon ? Math.max(1, Math.floor(Number(weapon.maxDamage || 1))) : null;
-    const bonus = Math.max(0, Math.floor(Number(player.dmg || 0))); // strength bonus
+    const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { dmg: 0, critChance: 0, lifeOnKill: 0 };
+    const bonus = Math.max(0, Math.floor(Number(player.dmg || 0) + Number(b.dmg || 0))); // strength bonus (+trinkets)
     const maxDmg = weaponMax != null ? weaponMax + bonus : unarmedMax + bonus;
     let dealt = rollBellInt(0, maxDmg);
-    const crit = rollChance(0.1); // 10% crit chance
+    const critChance = clamp(0.02 + 0.1 + Number(b.critChance || 0), 0.02, 0.6);
+    const crit = rollChance(critChance);
     const miss = rollChance(0.05); // 5% miss chance
     
     if (miss) {
@@ -231,6 +289,11 @@ function move(dx, dy) {
     if (dealt > 0) {
       showDamageNumber(enemy.x, enemy.y, dealt, crit ? "crit" : "player");
       floorStats.damageDealt += dealt;
+      try {
+        runStats.damageDealt = Math.max(0, Number(runStats.damageDealt || 0) + dealt);
+      } catch {
+        // ignore
+      }
       lastTarget = {
         name: enemy?.name || "Enemy",
         hp: enemy.hp,
@@ -247,11 +310,28 @@ function move(dx, dy) {
       playSound?.("loot");
       enemies = enemies.filter((e) => e !== enemy);
       floorStats.enemiesKilled = (floorStats.enemiesKilled || 0) + 1;
+      try {
+        runStats.enemiesKilled = Math.max(0, Number(runStats.enemiesKilled || 0) + 1);
+      } catch {
+        // ignore
+      }
       lastTarget = null;
       
       // Combo system
       player.kills++;
       player.combo++;
+      try {
+        bountyNotify?.({ type: "kill", enemy: String(enemy?.name || "") });
+      } catch {
+        // ignore
+      }
+      // Life-on-kill trinket sustain
+      try {
+        const lok = Number(b.lifeOnKill || 0);
+        if (lok > 0) player.hp = Math.min(player.maxHp, player.hp + lok);
+      } catch {
+        // ignore
+      }
       const scoreGain = Math.floor(enemyValue) * 10 * (1 + Math.floor(player.combo / 3));
       player.score += scoreGain;
       floorStats.scoreGained = (floorStats.scoreGained || 0) + scoreGain;
@@ -293,6 +373,8 @@ function move(dx, dy) {
       player.combo = 0;
     }
   } else {
+    // Block movement into non-walkable tiles (including props).
+    if (!isPlayerWalkable(nx, ny)) return;
     // Speed boost allows double move occasionally
     const speedBoost = player.statusEffects?.speed;
     let moves = 1;
@@ -328,12 +410,22 @@ function move(dx, dy) {
       playSound?.("miss");
       vibrate(8);
     } else {
-      player.inventory.push(loot);
+      if (!addItemToInventory(loot)) {
+        addLog("Inventory full. Sell or use items.", "block");
+        playSound?.("miss");
+        vibrate(8);
+        return;
+      }
       const lootName = loot?.name || "item";
       addLog(`Picked up ${lootName}`, "loot");
       playSound?.("loot");
       vibrate(10);
       floorStats.itemsFound++;
+      try {
+        runStats.itemsFound = Math.max(0, Number(runStats.itemsFound || 0) + 1);
+      } catch {
+        // ignore
+      }
       clearLootAtKey(pKey);
       // Only clear the map tile if we actually "painted" it as loot.
       // If loot was dropped on a special tile (trapdoor/upstairs/etc.), we leave the base tile intact.
@@ -368,6 +460,14 @@ function move(dx, dy) {
   const shopKey = keyOf(player.x, player.y);
   if (map[`${shopKey}_shop`]) {
     openShopMenu();
+    return;
+  }
+  if (map[`${shopKey}_blacksmith`]) {
+    openBlacksmithMenu();
+    return;
+  }
+  if (map[`${shopKey}_bounty`]) {
+    openBountyBoardMenu();
     return;
   }
   endPlayerTurn();

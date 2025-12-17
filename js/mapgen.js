@@ -110,6 +110,17 @@ function generateFloor() {
     const hut1 = placeBuilding(cx - 15, cy + 2, 7, 6, "south");
     const hut2 = placeBuilding(cx - 14, cy - 10, 8, 6, "east");
 
+    // Blacksmith + bounty board inside the huts.
+    const smithX = cx - 15 + Math.floor(7 / 2);
+    const smithY = cy + 2 + Math.floor(6 / 2);
+    map[keyOf(smithX, smithY)] = TILE.BLACKSMITH;
+    map[`${smithX},${smithY}_blacksmith`] = true;
+
+    const bountyX = cx - 14 + Math.floor(8 / 2);
+    const bountyY = cy - 10 + Math.floor(6 / 2);
+    map[keyOf(bountyX, bountyY)] = TILE.BOUNTY;
+    map[`${bountyX},${bountyY}_bounty`] = true;
+
     // Paths between key points.
     carvePath(cx, cy, fireX, fireY);
     carvePath(fireX, fireY, shopB.doorX, shopB.doorY);
@@ -126,6 +137,12 @@ function generateFloor() {
     player.y = cy + 10;
 
     setMenuOpen(false);
+    try {
+      ensureBountyOffers?.();
+      bountyNotify?.({ type: "floor", floor: 0 });
+    } catch {
+      // ignore
+    }
     draw();
     return;
   }
@@ -208,6 +225,8 @@ function generateFloor() {
       spawnSword(r.x, r.y, r.w, r.h, 0.06);
       // Sometimes spawn food in enemy rooms too
       if (rollChance(0.15)) spawnFood(r.x, r.y, r.w, r.h);
+      spawnMaterial(r.x, r.y, r.w, r.h, 0.10);
+      spawnPropsInRoom(r.x, r.y, r.w, r.h, rand(0, 2));
     } else if (r.type === "boss") {
       // Spawn boss enemy (uppercase version of regular enemy)
       spawnBossEnemy(r.x, r.y, r.w, r.h);
@@ -217,6 +236,8 @@ function generateFloor() {
       for (let i = 0; i < rand(1, 2); i++) spawnValuable(r.x, r.y, r.w, r.h, 1.0);
       // Boss drop: guaranteed sword
       spawnSword(r.x, r.y, r.w, r.h, 1.0);
+      spawnTrinket(r.x, r.y, r.w, r.h, 0.45);
+      spawnPropsInRoom(r.x, r.y, r.w, r.h, rand(1, 2));
     } else if (r.type === "treasure") {
       // Treasure room: lots of loot, no enemies
       for (let i = 0; i < rand(2, 4); i++) {
@@ -226,6 +247,9 @@ function generateFloor() {
       for (let i = 0; i < rand(1, 2); i++) spawnSword(r.x, r.y, r.w, r.h, 1.0);
       // Spawn food in treasure rooms (higher chance)
       if (rollChance(0.7)) spawnFood(r.x, r.y, r.w, r.h);
+      spawnMaterial(r.x, r.y, r.w, r.h, 0.85);
+      spawnTrinket(r.x, r.y, r.w, r.h, 0.35);
+      spawnPropsInRoom(r.x, r.y, r.w, r.h, rand(2, 4));
     } else if (r.type === "trap") {
       // Trap room: many traps, high risk/reward
       for (let i = 0; i < rand(3, 6); i++) {
@@ -244,12 +268,16 @@ function generateFloor() {
       spawnPotion(r.x, r.y, r.w, r.h);
       spawnValuable(r.x, r.y, r.w, r.h, 0.65);
       spawnSword(r.x, r.y, r.w, r.h, 0.25);
+      spawnMaterial(r.x, r.y, r.w, r.h, 0.35);
+      spawnPropsInRoom(r.x, r.y, r.w, r.h, rand(1, 3));
     } else if (r.type === "shop") {
       // Shop room: merchant NPC
       const shopX = Math.floor(r.x + r.w / 2);
       const shopY = Math.floor(r.y + r.h / 2);
       map[`${shopX},${shopY}`] = "$";
       map[`${shopX},${shopY}_shop`] = true;
+      spawnMaterial(r.x, r.y, r.w, r.h, 0.25);
+      spawnPropsInRoom(r.x, r.y, r.w, r.h, rand(0, 1));
     }
   }
 
@@ -279,6 +307,12 @@ function generateFloor() {
 
   // Always close menu when generating a new floor (death/descend).
   setMenuOpen(false);
+  try {
+    runStats.floorsReached = Math.max(Number(runStats.floorsReached || 0), Number(floor || 0));
+    bountyNotify?.({ type: "floor", floor });
+  } catch {
+    // ignore
+  }
   draw();
 }
 
@@ -476,7 +510,9 @@ function spawnBossEnemy(x, y, w, h) {
   const bossX = Math.floor(x + w / 2);
   const bossY = Math.floor(y + h / 2);
   
-  const bossHp = Math.floor(baseEnemy.hp * 2.5) + Math.floor(floor / 5);
+  const hpMult = Math.max(0.1, Number(settings?.enemyHpMult || 1));
+  const dmgMult = Math.max(0.1, Number(settings?.enemyDmgMult || 1));
+  const bossHp = Math.floor((Math.floor(baseEnemy.hp * 2.5) + Math.floor(floor / 5)) * hpMult);
   const boss = {
     ...baseEnemy,
     x: bossX,
@@ -485,7 +521,7 @@ function spawnBossEnemy(x, y, w, h) {
     name: `Boss ${baseEnemy.name}`,
     hp: bossHp, // Much stronger
     maxHp: bossHp,
-    dmg: Math.floor(baseEnemy.dmg * 1.5) + Math.floor(floor / 10),
+    dmg: Math.max(1, Math.floor((Math.floor(baseEnemy.dmg * 1.5) + Math.floor(floor / 10)) * dmgMult)),
     toughness: (baseEnemy.toughness || 0) + 1,
     statusEffects: {},
     isBoss: true,
@@ -498,6 +534,8 @@ function spawnBossEnemy(x, y, w, h) {
 
 function spawnEnemies(x, y, w, h) {
   const count = rand(1, 2);
+  const hpMult = Math.max(0.1, Number(settings?.enemyHpMult || 1));
+  const dmgMult = Math.max(0.1, Number(settings?.enemyDmgMult || 1));
 
   for (let i = 0; i < count; i++) {
     const t = getEnemyTypeForFloor();
@@ -513,9 +551,9 @@ function spawnEnemies(x, y, w, h) {
       enemies.push({
         x: ex,
         y: ey,
-        hp: t.hp,
-        maxHp: t.hp,
-        dmg: t.dmg,
+        hp: Math.max(1, Math.floor(Number(t.hp || 1) * hpMult)),
+        maxHp: Math.max(1, Math.floor(Number(t.hp || 1) * hpMult)),
+        dmg: Math.max(1, Math.floor(Number(t.dmg || 1) * dmgMult)),
         color: t.color,
         sight: t.sight,
         symbol: t.symbol || "r",
@@ -532,9 +570,9 @@ function spawnEnemies(x, y, w, h) {
       enemies.push({
         x,
         y,
-        hp: t.hp,
-        maxHp: t.hp,
-        dmg: t.dmg,
+        hp: Math.max(1, Math.floor(Number(t.hp || 1) * hpMult)),
+        maxHp: Math.max(1, Math.floor(Number(t.hp || 1) * hpMult)),
+        dmg: Math.max(1, Math.floor(Number(t.dmg || 1) * dmgMult)),
         color: t.color,
         sight: t.sight,
         symbol: t.symbol || "r",
@@ -548,7 +586,9 @@ function spawnEnemies(x, y, w, h) {
 }
 
 function spawnPotion(x, y, w, h) {
-  if (!rollChance(0.05)) return;
+  const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { lootMult: 0 };
+  const lootMult = clamp(Math.max(0, Number(settings?.lootMult || 1)) * (1 + Number(b.lootMult || 0)), 0, 3);
+  if (!rollChance(0.05 * lootMult)) return;
 
   const p = POTIONS[rand(0, POTIONS.length - 1)];
 
@@ -566,7 +606,9 @@ function spawnPotion(x, y, w, h) {
 
 function spawnValuable(x, y, w, h, chance = 0.08) {
   if (!Array.isArray(VALUABLES) || !VALUABLES.length) return;
-  if (!rollChance(chance)) return;
+  const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { lootMult: 0 };
+  const lootMult = clamp(Math.max(0, Number(settings?.lootMult || 1)) * (1 + Number(b.lootMult || 0)), 0, 3);
+  if (!rollChance(chance * lootMult)) return;
 
   const base = VALUABLES[rand(0, VALUABLES.length - 1)];
   const rar = typeof pickRarityForFloor === "function" ? pickRarityForFloor(floor) : null;
@@ -600,7 +642,9 @@ function rollGearLevelForFloor(f) {
 
 function spawnSword(x, y, w, h, chance = 0.06) {
   if (typeof makeSword !== "function") return;
-  if (!rollChance(chance)) return;
+  const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { lootMult: 0 };
+  const lootMult = clamp(Math.max(0, Number(settings?.lootMult || 1)) * (1 + Number(b.lootMult || 0)), 0, 3);
+  if (!rollChance(chance * lootMult)) return;
   const lvl = rollGearLevelForFloor(floor);
   const sword = makeSword(lvl, pickRarityForFloor(floor));
 
@@ -618,6 +662,8 @@ function spawnSword(x, y, w, h, chance = 0.06) {
 }
 
 function spawnFood(x, y, w, h) {
+  const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { lootMult: 0 };
+  const lootMult = clamp(Math.max(0, Number(settings?.lootMult || 1)) * (1 + Number(b.lootMult || 0)), 0, 3);
   const foods = [MUSHROOM, BERRY];
   const food = foods[rand(0, foods.length - 1)];
   
@@ -630,6 +676,68 @@ function spawnFood(x, y, w, h) {
 
     map[`${fx},${fy}`] = food.symbol;
     setLootAtKey(keyOf(fx, fy), food);
+    return;
+  }
+}
+
+function spawnPropsInRoom(x, y, w, h, baseCount = 1) {
+  const density = clamp(Math.max(0, Number(settings?.propDensity || 1)), 0, 3);
+  const count = Math.max(0, Math.floor(Number(baseCount || 0) * density));
+  if (count <= 0) return;
+  for (let i = 0; i < count; i++) {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const px = rand(x, x + w - 1);
+      const py = rand(y, y + h - 1);
+      const k = keyOf(px, py);
+      if (map[k] !== ".") continue;
+      if (enemies.some((e) => e.x === px && e.y === py)) continue;
+      if (lootAtKey(k) || trapAtKey(k) || propAtKey(k)) continue;
+      const kind = rollChance(0.6) ? "crate" : "barrel";
+      const hp = kind === "crate" ? 3 : 2;
+      setPropAtKey(k, { kind, hp });
+      setTileAtKey(k, kind === "crate" ? TILE.CRATE : TILE.BARREL);
+      break;
+    }
+  }
+}
+
+function spawnMaterial(x, y, w, h, chance = 0.12) {
+  if (!Array.isArray(MATERIALS) || !MATERIALS.length) return;
+  const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { lootMult: 0 };
+  const lootMult = clamp(Math.max(0, Number(settings?.lootMult || 1)) * (1 + Number(b.lootMult || 0)), 0, 3);
+  if (!rollChance(chance * lootMult)) return;
+  const base = MATERIALS[rand(0, MATERIALS.length - 1)];
+  const qty = 1 + (rollChance(0.25) ? 1 : 0);
+  const it = { ...base, qty };
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const mx = rand(x, x + w - 1);
+    const my = rand(y, y + h - 1);
+    const k = keyOf(mx, my);
+    if (map[k] !== ".") continue;
+    if (enemies.some((e) => e.x === mx && e.y === my)) continue;
+    if (lootAtKey(k) || trapAtKey(k)) continue;
+    map[k] = it.symbol;
+    setLootAtKey(k, it);
+    return;
+  }
+}
+
+function spawnTrinket(x, y, w, h, chance = 0.25) {
+  if (!Array.isArray(TRINKETS) || !TRINKETS.length) return;
+  const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { lootMult: 0 };
+  const lootMult = clamp(Math.max(0, Number(settings?.lootMult || 1)) * (1 + Number(b.lootMult || 0)), 0, 3);
+  if (!rollChance(chance * lootMult)) return;
+  const base = TRINKETS[rand(0, TRINKETS.length - 1)];
+  const it = { ...base };
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const tx = rand(x, x + w - 1);
+    const ty = rand(y, y + h - 1);
+    const k = keyOf(tx, ty);
+    if (map[k] !== ".") continue;
+    if (enemies.some((e) => e.x === tx && e.y === ty)) continue;
+    if (lootAtKey(k) || trapAtKey(k)) continue;
+    map[k] = it.symbol;
+    setLootAtKey(k, it);
     return;
   }
 }
@@ -949,6 +1057,13 @@ function triggerTrapAtEntity(x, y, target, targetKind = "player") {
     }
   }
   if (targetKind === "player") floorStats.trapsTriggered++;
+  if (targetKind === "player") {
+    try {
+      runStats.trapsTriggered = Math.max(0, Number(runStats.trapsTriggered || 0) + 1);
+    } catch {
+      // ignore
+    }
+  }
 
   if (trap.hidden) hiddenTrapCount = Math.max(0, hiddenTrapCount - 1);
   clearTrapAtKey(key);

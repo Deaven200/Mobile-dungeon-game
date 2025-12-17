@@ -34,6 +34,12 @@ function bindInputs() {
 
       e.preventDefault();
 
+      if (btn.dataset.hotbarUse != null) {
+        if (menuOpen || gamePaused || inMainMenu) return;
+        useHotbarSlot(Number(btn.dataset.hotbarUse));
+        return;
+      }
+
       const action = btn.dataset.action;
       if (action === "menu") {
         stopWaitHold();
@@ -158,6 +164,24 @@ function bindInputs() {
         const d = chebDist(player.x, player.y, tx, ty);
         if (d <= 1) {
           openShopMenu();
+          return;
+        }
+      }
+      
+      // Blacksmith
+      if (tappedTile === "K") {
+        const d = chebDist(player.x, player.y, tx, ty);
+        if (d <= 1) {
+          openBlacksmithMenu();
+          return;
+        }
+      }
+      
+      // Bounty board
+      if (tappedTile === "!") {
+        const d = chebDist(player.x, player.y, tx, ty);
+        if (d <= 1) {
+          openBountyBoardMenu();
           return;
         }
       }
@@ -347,6 +371,69 @@ function bindInputs() {
         buyShopItem(Number(btn.dataset.buyItem));
         return;
       }
+
+      if (btn.dataset.sortInv != null) {
+        setInventorySort(btn.dataset.sortInv);
+        return;
+      }
+
+      if (btn.dataset.clearHotbar != null) {
+        clearHotbarSlot(Number(btn.dataset.clearHotbar));
+        return;
+      }
+
+      if (btn.dataset.assignHotbar != null) {
+        const parts = String(btn.dataset.assignHotbar).split(":");
+        const slot = Number(parts[0]);
+        const idx = Number(parts[1]);
+        assignHotbarSlot(slot, idx);
+        return;
+      }
+
+      if (btn.dataset.equipTrinketA != null) {
+        equipTrinketToSlot?.("a", Number(btn.dataset.equipTrinketA));
+        return;
+      }
+      if (btn.dataset.equipTrinketB != null) {
+        equipTrinketToSlot?.("b", Number(btn.dataset.equipTrinketB));
+        return;
+      }
+      if (btn.dataset.unequipTrinket != null) {
+        unequipTrinket?.(btn.dataset.unequipTrinket);
+        return;
+      }
+      if (btn.dataset.blacksmithUpgrade != null) {
+        blacksmithUpgrade?.();
+        return;
+      }
+      if (btn.dataset.bountyAccept != null) {
+        acceptBounty?.(btn.dataset.bountyAccept);
+        return;
+      }
+      if (btn.dataset.bountyClaim != null) {
+        claimBounty?.(btn.dataset.bountyClaim);
+        return;
+      }
+
+      if (btn.dataset.diffPreset != null) {
+        applyDifficultyPreset(btn.dataset.diffPreset);
+        try {
+          localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+        } catch {
+          // ignore
+        }
+        draw();
+        return;
+      }
+
+      if (btn.dataset.diffAdjust != null) {
+        const s = String(btn.dataset.diffAdjust);
+        const parts = s.split(":");
+        const key = parts[0];
+        const delta = Number(parts[1]);
+        adjustDifficulty(key, delta);
+        return;
+      }
     });
 
     // Settings toggles in the in-game menu are <input type="checkbox"> elements.
@@ -424,6 +511,10 @@ function bindInputs() {
       e.preventDefault();
     } else if (e.key === "Escape") {
       stopAutoMove();
+      e.preventDefault();
+    } else if (e.key === "1" || e.key === "2" || e.key === "3" || e.key === "4") {
+      stopAutoMove();
+      useHotbarSlot(Number(e.key) - 1);
       e.preventDefault();
     }
   });

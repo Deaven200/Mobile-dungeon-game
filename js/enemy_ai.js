@@ -284,6 +284,11 @@ function moveEnemies() {
           playSound?.("hurt");
           vibrate(25);
           floorStats.damageTaken += dmg;
+          try {
+            runStats.damageTaken = Math.max(0, Number(runStats.damageTaken || 0) + dmg);
+          } catch {
+            // ignore
+          }
         } else {
           addLog(`${eName}'s crushing blow glances off you`, "block");
         }
@@ -331,6 +336,11 @@ function moveEnemies() {
         playSound?.("hurt");
         vibrate(20);
         floorStats.damageTaken += dmg;
+        try {
+          runStats.damageTaken = Math.max(0, Number(runStats.damageTaken || 0) + dmg);
+        } catch {
+          // ignore
+        }
         player.combo = 0;
       } else {
         addLog(`${eName} hits you for ${dmg}`, "block");
