@@ -8,7 +8,7 @@
 - ASCII map rendering; the dungeon is displayed as a character grid centered on the player
 - Sight; full-info sight radius is 6 tiles, plus an extra 3-tile ring that shows only walls/floors (no enemies/items/traps)
 - View size; the rendered view is 19x19 tiles (6+3 radius on each side)
-- Tile symbols; @=player, r=rat, g=goblin, #=wall, .=floor, P=potion, T=trapdoor, ~=visible trap, m=mouse hint
+- Tile symbols; @=player, r=rat, g=goblin, b=bat, s=skeleton, o=orc, #=wall, .=floor, P=potion, T=trapdoor, ~=visible trap, m=mouse, M=meat, f=mushroom, y=berry, C=campfire, $=shop
 - Auto-fit map font size; the ASCII map font scales to fit the screen/container
 - Hidden trap hint; hidden traps look like floor but periodically flash orange
 
