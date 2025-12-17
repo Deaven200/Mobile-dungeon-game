@@ -838,8 +838,12 @@ function showEnterDungeonPrompt() {
           const transitionEl = document.getElementById("floorTransition");
           if (transitionEl) transitionEl.style.display = "none";
           gamePaused = false;
+
           // New dive => new dungeon. Reseed so the floor layouts are fresh every time you enter.
           seedRng(createSeed());
+
+
+
           floor = 1;
           generateFloor();
         },
@@ -1477,7 +1481,11 @@ function getInvestigationInfoAt(tx, ty) {
   if (ch === TILE.TRAPDOOR) return { kind: "trapdoor" };
   if (ch === TILE.ENTRANCE) return { kind: "entrance" };
   if (ch === TILE.UPSTAIRS) return { kind: "upstairs" };
+
   if (ch === TILE.GRASS) return { kind: "grass" };
+
+
+
   if (ch === TILE.CAMPFIRE) return { kind: "campfire" };
   if (ch === TILE.SHOP) return { kind: "shop" };
   if (ch === TILE.WALL) return { kind: "wall" };
@@ -1851,6 +1859,9 @@ function showDialogueOverlay(title, pages, onDone) {
   return true;
 }
 
+
+
+n
 function showRecruiterIntro(onDone) {
   const name = Array.isArray(NAMES) && NAMES.length ? NAMES[rand(0, NAMES.length - 1)] : "Unknown";
   const talentObj = Array.isArray(TALENTS) && TALENTS.length ? TALENTS[rand(0, TALENTS.length - 1)] : null;
@@ -1872,7 +1883,11 @@ function showRecruiterIntro(onDone) {
     [rec("Rule one: you go in, you come back out."), rec("If you don't come back out… you're done.")].join(""),
     [rec("Courtyard's safe. Dungeon isn't."), rec("Bring something worth selling. Then go deeper.")].join(""),
     [you("Got it."), rec("Door's at the center. Don't make me regret this.")].join(""),
+
   ];
 
   showDialogueOverlay("Recruitment", pages, onDone);
+
+
+
 }
