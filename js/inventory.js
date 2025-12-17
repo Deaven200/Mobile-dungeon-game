@@ -8,16 +8,19 @@ function usePotion(i) {
     player.maxHp += p.value;
     player.hp = player.maxHp;
     addLog("You drink a Health Potion", "loot");
+    playSound?.("loot");
   }
 
   if (p.effect === "damageBoost") {
     player.dmg += p.value;
     addLog("You feel stronger", "loot");
+    playSound?.("loot");
   }
 
   if (p.effect === "toughnessBoost") {
     player.toughness += p.value;
     addLog("You feel tougher", "loot");
+    playSound?.("loot");
   }
 
   if (p.effect === "speed") {
@@ -28,6 +31,7 @@ function usePotion(i) {
     } else {
       addStatus(player, "speed", p.turns || 10, p.value);
       addLog(`You feel faster! (+${p.value} speed for ${p.turns || 10} turns)`, "loot");
+      playSound?.("loot");
     }
   }
 
@@ -39,6 +43,7 @@ function usePotion(i) {
     } else {
       addStatus(player, "invisibility", p.turns || 5, p.value);
       addLog(`You become invisible! (${p.turns || 5} turns)`, "loot");
+      playSound?.("loot");
     }
   }
 
@@ -54,19 +59,29 @@ function usePotion(i) {
               e.hp -= dmg;
               hit = true;
               
+              lastTarget = {
+                name: e?.name || "Enemy",
+                hp: e.hp,
+                maxHp: typeof e.maxHp === "number" ? e.maxHp : undefined,
+                x: e.x,
+                y: e.y,
+                time: Date.now(),
+              };
+              
               // Show damage number
               showDamageNumber(e.x, e.y, dmg, "player");
               
               if (e.hp <= 0) {
                 enemiesToKill.push(e);
                 addLog(`${e.name} dies from explosion!`, "death");
+                lastTarget = null;
                 
                 // Award combo and score with adjusted scaling
                 player.kills++;
                 player.combo++;
                 const comboMultiplier = 1 + Math.floor(player.combo / 5);
                 player.score += Math.floor(enemyValue) * 8 * comboMultiplier;
-                floorStats.enemiesKilled++;
+                floorStats.enemiesKilled = (floorStats.enemiesKilled || 0) + 1;
                 floorStats.damageDealt += dmg;
                 floorStats.scoreGained = (floorStats.scoreGained || 0) + Math.floor(enemyValue) * 8 * comboMultiplier;
                 floorStats.maxCombo = Math.max(floorStats.maxCombo || 0, player.combo);
@@ -89,6 +104,7 @@ function usePotion(i) {
     
     if (!hit) addLog("Explosive potion fizzles...", "block");
     else addLog("BOOM! Explosive potion!", "player");
+    if (hit) playSound?.("crit");
   }
 
   if (p.effect === "food") {
@@ -97,6 +113,7 @@ function usePotion(i) {
     player.hunger = Math.min(player.maxHunger, player.hunger + hungerGain);
     player.hp = Math.min(player.maxHp, player.hp + heal);
     addLog(`You eat ${p.name}`, "loot");
+    playSound?.("loot");
   }
 
   player.inventory.splice(i, 1);

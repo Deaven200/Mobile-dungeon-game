@@ -6,6 +6,25 @@
   --gap: clamp(8px, 2.2vw, 12px);
 }
 
+/* Accessibility */
+body.high-contrast {
+  --fg: #ffffff;
+  --accent: #00ffff;
+}
+
+body.large-text {
+  --btn: clamp(64px, 18vw, 92px);
+}
+
+body.reduced-motion * {
+  scroll-behavior: auto !important;
+  transition: none !important;
+}
+
+body.reduced-motion .damage-number {
+  animation: none !important;
+}
+
 html,
 body {
   width: 100%;

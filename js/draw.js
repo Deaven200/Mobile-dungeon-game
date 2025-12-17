@@ -57,7 +57,9 @@ function updateMapFontSize() {
 
   // Slight safety margin so we don't clip on fractional pixels.
   const fontPx = Math.floor(Math.min(maxByW, maxByH) * 0.98);
-  const clamped = Math.max(12, Math.min(48, fontPx));
+  const minPx = settings?.largeText ? 14 : 12;
+  const maxPx = settings?.largeText ? 56 : 48;
+  const clamped = Math.max(minPx, Math.min(maxPx, fontPx));
 
   gameEl.style.fontSize = `${clamped}px`;
 }
@@ -189,6 +191,30 @@ function renderMenuHtml() {
           Show Enemy Health
         </label>
         <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+          <input type="checkbox" ${settings.soundEnabled ? "checked" : ""} data-setting="soundEnabled" style="width: 20px; height: 20px;">
+          Sound
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+          <input type="checkbox" ${settings.largeText ? "checked" : ""} data-setting="largeText" style="width: 20px; height: 20px;">
+          Large Text
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+          <input type="checkbox" ${settings.highContrast ? "checked" : ""} data-setting="highContrast" style="width: 20px; height: 20px;">
+          High Contrast
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+          <input type="checkbox" ${settings.reducedMotion ? "checked" : ""} data-setting="reducedMotion" style="width: 20px; height: 20px;">
+          Reduced Motion
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+          <input type="checkbox" ${settings.reducedFlashing ? "checked" : ""} data-setting="reducedFlashing" style="width: 20px; height: 20px;">
+          Reduced Flashing
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+          <input type="checkbox" ${settings.diagonalMelee ? "checked" : ""} data-setting="diagonalMelee" style="width: 20px; height: 20px;">
+          Diagonal Melee
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
           <input type="checkbox" ${settings.autoSave ? "checked" : ""} data-setting="autoSave" style="width: 20px; height: 20px;">
           Auto-Save
         </label>
@@ -247,14 +273,29 @@ function draw() {
   const enemyByPos = new Map();
   for (const e of enemies) enemyByPos.set(`${e.x},${e.y}`, e);
 
+  // Auto-walk preview path (remaining steps).
+  const pathKeys = new Set();
+  if (autoMove?.path?.length) {
+    let px = player.x;
+    let py = player.y;
+    for (const step of autoMove.path) {
+      px += step.dx;
+      py += step.dy;
+      pathKeys.add(keyOf(px, py));
+    }
+  }
+
   const dimCss = "opacity:0.5;";
   const popCss = "font-weight:700;";
   const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
-  const hiddenFlashOn = Date.now() % HIDDEN_TRAP_FLASH_PERIOD_MS < HIDDEN_TRAP_FLASH_PULSE_MS;
-  const mouseWallPulseOn = Date.now() % 240 < 120;
+  const reducedFlashing = !!settings?.reducedFlashing;
+  const trapPeriod = reducedFlashing ? HIDDEN_TRAP_FLASH_PERIOD_MS * 2.5 : HIDDEN_TRAP_FLASH_PERIOD_MS;
+  const trapPulse = reducedFlashing ? Math.max(120, Math.floor(HIDDEN_TRAP_FLASH_PULSE_MS * 0.6)) : HIDDEN_TRAP_FLASH_PULSE_MS;
+  const hiddenFlashOn = Date.now() % trapPeriod < trapPulse;
+  const mouseWallPulseOn = Date.now() % (reducedFlashing ? 420 : 240) < (reducedFlashing ? 140 : 120);
 
   const viewRadius = getViewRadius();
-  markExploredAroundPlayer();
+  const vis = computeVisibility();
 
   // Map draw - center on player
   let out = "";
@@ -281,8 +322,11 @@ function draw() {
       const key = `${tx},${ty}`;
       const dist = Math.max(Math.abs(x), Math.abs(y)); // square distance
 
-      // Fog-of-war beyond current sight: show only explored terrain, hide unseen.
-      if (dist > BASE_VIEW_RADIUS) {
+      // Fog-of-war:
+      // - Outside BASE_VIEW_RADIUS: show explored terrain only.
+      // - Inside BASE_VIEW_RADIUS but not currently visible (LoS blocked): also show explored terrain only.
+      const currentlyVisible = vis?.has?.(key);
+      if (dist > BASE_VIEW_RADIUS || !currentlyVisible) {
         if (!explored.has(key)) {
           pushCell(" ", null);
           continue;
@@ -292,10 +336,7 @@ function draw() {
         const hiddenAsWall = hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key);
         const ch = hiddenAsWall ? "#" : map[key] || "#";
         const t = ch === "#" ? "#" : ".";
-        pushCell(
-          t === "#" ? "#" : ".",
-          `color:${t === "#" ? "lime" : "#555"};${dimCss}`,
-        );
+        pushCell(t === "#" ? "#" : ".", `color:${t === "#" ? "lime" : "#555"};${dimCss}`);
         continue;
       }
 
@@ -326,7 +367,9 @@ function draw() {
         pushCell("@", `color:cyan;${extra}`);
       } else if (enemyByPos.has(key)) {
         const e = enemyByPos.get(key);
-        const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
+        const hitFlash = lastTarget && lastTarget.x === e.x && lastTarget.y === e.y && Date.now() - (lastTarget.time || 0) < 220;
+        const flashCss = hitFlash ? "text-shadow: 0 0 6px rgba(255,255,255,0.9), 0 0 10px rgba(255,255,255,0.35);" : "";
+        const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}${flashCss}`;
         pushCell(e.symbol || "E", `color:${e.color || "red"};${extra}`);
       } else if (mouse && tx === mouse.x && ty === mouse.y) {
         pushCell("m", `color:#eee;${popCss}`);
@@ -336,12 +379,12 @@ function draw() {
         const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
         const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
         pushCell("#", `color:${color};`);
-      } else if (map[`${key}_loot`]) {
-        const p = map[`${key}_loot`];
+      } else if (lootAtKey(key)) {
+        const p = lootAtKey(key);
         pushCell(p.symbol, `color:${p.color || "cyan"};${popCss}`);
       } else {
-        const ch = map[key] || "#";
-        const trap = map[`${key}_trap`];
+        const ch = tileAtKey(key);
+        const trap = trapAtKey(key);
         if (trap) {
           if (trap.hidden) {
             // Hidden traps look like floor, but flash orange every few seconds.
@@ -349,10 +392,14 @@ function draw() {
           } else {
             pushCell("~", `color:${trap.color || "orange"};`);
           }
-        } else if (ch === ".") pushCell(".", "color:#555;"); // floor
-        else if (ch === "~") pushCell("~", "color:orange;"); // fallback
-        else if (ch === "#") pushCell("#", "color:lime;"); // wall
-        else if (ch === "T") {
+        } else if (ch === TILE.FLOOR) {
+          // floor (optionally show auto-walk path preview)
+          if (pathKeys.has(key)) pushCell(".", "color:#0ff;text-shadow: 0 0 4px rgba(0,255,255,0.35);");
+          else pushCell(".", "color:#555;");
+        } // floor
+        else if (ch === TILE.TRAP_VISIBLE) pushCell("~", "color:orange;"); // fallback
+        else if (ch === TILE.WALL) pushCell("#", "color:lime;"); // wall
+        else if (ch === TILE.TRAPDOOR) {
           // Only show trapdoor if no enemy is on it
           if (!enemyByPos.has(key)) {
             pushCell("T", `color:#00ff3a;${popCss}`); // trapdoor
@@ -364,9 +411,8 @@ function draw() {
             const bossGlow = isBoss ? "text-shadow: 0 0 4px #ff0000, 0 0 8px #ff0000;" : "";
             pushCell(e.symbol || "E", `color:${e.color || "red"};${extra}${bossGlow}`);
           }
-        }
-        else if (ch === "C") pushCell("C", `color:orange;${popCss}`); // campfire
-        else if (ch === "$") pushCell("$", `color:#ffd700;${popCss}`); // shop
+        } else if (ch === TILE.CAMPFIRE) pushCell("C", `color:orange;${popCss}`); // campfire
+        else if (ch === TILE.SHOP) pushCell("$", `color:#ffd700;${popCss}`); // shop
         else pushCell(ch, "color:white;");
       }
     }

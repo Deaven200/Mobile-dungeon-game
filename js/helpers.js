@@ -1,5 +1,86 @@
 /* ===================== HELPERS ===================== */
 
+// Tiny synth sounds (no external audio files).
+let audioState = { ctx: null, lastPlayAt: 0 };
+let lastStarveLogAt = 0;
+
+function applyAccessibilitySettings() {
+  try {
+    document.body.classList.toggle("high-contrast", !!settings?.highContrast);
+    document.body.classList.toggle("large-text", !!settings?.largeText);
+    document.body.classList.toggle("reduced-motion", !!settings?.reducedMotion);
+    document.body.classList.toggle("reduced-flashing", !!settings?.reducedFlashing);
+  } catch {
+    // ignore
+  }
+}
+window.applyAccessibilitySettings = applyAccessibilitySettings;
+
+function ensureAudioContext() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (!audioState.ctx) audioState.ctx = new AC();
+  // Best-effort resume (mobile browsers often start suspended).
+  try {
+    if (audioState.ctx.state === "suspended") audioState.ctx.resume();
+  } catch {
+    // ignore
+  }
+  return audioState.ctx;
+}
+
+function playTone(freqHz, durationMs, type = "square", gain = 0.04) {
+  if (!settings?.soundEnabled) return;
+  const now = Date.now();
+  // Rate limit to avoid audio spam.
+  if (now - (audioState.lastPlayAt || 0) < 40) return;
+  audioState.lastPlayAt = now;
+
+  const ctx = ensureAudioContext();
+  if (!ctx) return;
+
+  try {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+
+    osc.type = type;
+    osc.frequency.value = Math.max(30, Number(freqHz || 440));
+
+    const dur = Math.max(20, Number(durationMs || 60)) / 1000;
+    const t0 = ctx.currentTime;
+    const t1 = t0 + dur;
+
+    // Simple attack/decay so it doesn't click.
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(Math.max(0.0001, Number(gain || 0.04)), t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t1);
+
+    osc.connect(g);
+    g.connect(ctx.destination);
+
+    osc.start(t0);
+    osc.stop(t1 + 0.01);
+  } catch {
+    // ignore
+  }
+}
+
+function playSound(kind) {
+  if (!settings?.soundEnabled) return;
+  const k = String(kind || "").toLowerCase();
+  if (k === "hit") playTone(520, 55, "square", 0.045);
+  else if (k === "crit") playTone(820, 80, "sawtooth", 0.05);
+  else if (k === "miss") playTone(160, 60, "triangle", 0.03);
+  else if (k === "hurt") playTone(110, 90, "square", 0.05);
+  else if (k === "loot") playTone(700, 70, "triangle", 0.04);
+  else if (k === "menu") playTone(300, 40, "triangle", 0.03);
+  else if (k === "floor") playTone(240, 120, "sine", 0.04);
+  else if (k === "death") playTone(70, 220, "sawtooth", 0.06);
+}
+
+// Expose for other modules.
+window.playSound = playSound;
+
 function createSeed() {
   try {
     const buf = new Uint32Array(1);
@@ -25,6 +106,9 @@ function rand01() {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
+// Expose seeded RNG for non-core scripts (e.g. investigation text) while still allowing fallback.
+window.rand01 = rand01;
+
 const rand = (a, b) => Math.floor(rand01() * (b - a + 1)) + a;
 const rollChance = (p) => rand01() < Number(p || 0);
 
@@ -42,15 +126,64 @@ function getViewRadius() {
   return clamp(Math.round(BASE_VIEW_RADIUS * zoomScale), MIN_VIEW_RADIUS, MAX_VIEW_RADIUS);
 }
 
-function markExploredAroundPlayer() {
-  // Mark everything in the current "sight rendering" square as explored.
+function isOpaqueForSight(x, y) {
+  const k = keyOf(x, y);
+  // Hidden areas render as walls until revealed: treat as opaque.
+  if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k)) return true;
+  const ch = map[k] || "#";
+  return ch === "#";
+}
+
+function hasLineOfSight(x0, y0, x1, y1) {
+  // Bresenham line; allow seeing the blocking tile itself but not beyond it.
+  let x = x0;
+  let y = y0;
+  const dx = Math.abs(x1 - x0);
+  const dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+
+  // Skip the origin tile; check each subsequent tile.
+  while (!(x === x1 && y === y1)) {
+    const e2 = 2 * err;
+    if (e2 > -dy) {
+      err -= dy;
+      x += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      y += sy;
+    }
+
+    if (x === x1 && y === y1) return true; // target always visible if the line reaches it
+    if (isOpaqueForSight(x, y)) return false;
+  }
+  return true;
+}
+
+function computeVisibility() {
+  const vis = new Set();
+  const px = player.x;
+  const py = player.y;
+
+  // Always see your own tile.
+  vis.add(keyOf(px, py));
+
   for (let y = -BASE_VIEW_RADIUS; y <= BASE_VIEW_RADIUS; y++) {
     for (let x = -BASE_VIEW_RADIUS; x <= BASE_VIEW_RADIUS; x++) {
-      const tx = player.x + x;
-      const ty = player.y + y;
-      explored.add(`${tx},${ty}`);
+      const tx = px + x;
+      const ty = py + y;
+      const dist = Math.max(Math.abs(x), Math.abs(y));
+      if (dist > BASE_VIEW_RADIUS) continue;
+      if (tx === px && ty === py) continue;
+      if (hasLineOfSight(px, py, tx, ty)) vis.add(keyOf(tx, ty));
     }
   }
+
+  visibleNow = vis;
+  for (const k of vis) explored.add(k);
+  return vis;
 }
 
 function getTwoTouchPoints() {
@@ -113,6 +246,63 @@ function keyOf(x, y) {
   return `${x},${y}`;
 }
 
+// Tile constants (avoid magic characters scattered everywhere).
+const TILE = Object.freeze({
+  WALL: "#",
+  FLOOR: ".",
+  TRAPDOOR: "T",
+  TRAP_VISIBLE: "~",
+  CAMPFIRE: "C",
+  SHOP: "$",
+  POTION: "P",
+});
+
+// Map access helpers (still backed by the existing string-keyed map object).
+function tileAtKey(k) {
+  return map[k] || TILE.WALL;
+}
+function tileAt(x, y) {
+  return tileAtKey(keyOf(x, y));
+}
+function setTileAtKey(k, ch) {
+  map[k] = ch;
+}
+function setTileAt(x, y, ch) {
+  setTileAtKey(keyOf(x, y), ch);
+}
+
+function lootKeyOfKey(k) {
+  return `${k}_loot`;
+}
+function lootAtKey(k) {
+  return map[lootKeyOfKey(k)] || null;
+}
+function lootAt(x, y) {
+  return lootAtKey(keyOf(x, y));
+}
+function setLootAtKey(k, item) {
+  map[lootKeyOfKey(k)] = item;
+}
+function clearLootAtKey(k) {
+  delete map[lootKeyOfKey(k)];
+}
+
+function trapKeyOfKey(k) {
+  return `${k}_trap`;
+}
+function trapAtKey(k) {
+  return map[trapKeyOfKey(k)] || null;
+}
+function trapAt(x, y) {
+  return trapAtKey(keyOf(x, y));
+}
+function setTrapAtKey(k, trap) {
+  map[trapKeyOfKey(k)] = trap;
+}
+function clearTrapAtKey(k) {
+  delete map[trapKeyOfKey(k)];
+}
+
 function pointInRoom(x, y, r) {
   return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
 }
@@ -123,7 +313,7 @@ function pointInCombatRoom(x, y) {
 }
 
 function isWalkableTile(ch) {
-  return ch === "." || ch === "~" || ch === "T" || ch === "C";
+  return ch === TILE.FLOOR || ch === TILE.TRAP_VISIBLE || ch === TILE.TRAPDOOR || ch === TILE.CAMPFIRE || ch === TILE.SHOP;
 }
 
 function getStatus(target, kind) {
@@ -366,6 +556,15 @@ function updateHud() {
   if (player.combo > 0) {
     statusParts.push(`${player.combo}x Combo`);
   }
+
+  // Optional target info (makes "Show Enemy Health" meaningful in normal play).
+  const showTargetHealth = settings.showEnemyHealth !== false;
+  if (showTargetHealth && lastTarget && typeof lastTarget.hp === "number") {
+    const tName = String(lastTarget.name || "Enemy");
+    const hpStr =
+      typeof lastTarget.maxHp === "number" ? `${Math.max(0, lastTarget.hp)}/${lastTarget.maxHp}` : `${Math.max(0, lastTarget.hp)}`;
+    statusParts.push(`Target: ${tName} ${hpStr}`);
+  }
   
   // Add status effect indicators
   const statusEffects = player.statusEffects || {};
@@ -398,7 +597,11 @@ function tickHunger(cost = 0) {
   if (player.hunger <= 0) {
     // Starvation: small damage each turn while empty.
     player.hp -= 0.01;
-    addLog("You are starving: -0.01 hp", "danger");
+    const now = Date.now();
+    if (now - (lastStarveLogAt || 0) > 1200) {
+      lastStarveLogAt = now;
+      addLog("You are starving: -0.01 hp", "danger");
+    }
   }
 }
 
@@ -480,6 +683,29 @@ function buyShopItem(shopIndex) {
   draw();
 }
 
+function getFloorRewardChoices() {
+  const healthPotion = POTIONS.find((p) => p.name === "Health Potion") || POTIONS[0];
+  const pool = [
+    { id: "maxHp", label: "+1 Max HP", desc: "Also heal +1 hp", apply: () => { player.maxHp += 1; player.hp = Math.min(player.maxHp, player.hp + 1); } },
+    { id: "dmg", label: "+1 Damage", desc: "Hit harder", apply: () => { player.dmg += 1; } },
+    { id: "tough", label: "+1 Toughness", desc: "Take less damage", apply: () => { player.toughness += 1; } },
+    { id: "maxHunger", label: "+1 Max Hunger", desc: "More sustain", apply: () => { player.maxHunger += 1; player.hunger = Math.min(player.maxHunger, player.hunger + 1); } },
+    { id: "rations", label: "+3 Hunger", desc: "Immediate food", apply: () => { player.hunger = Math.min(player.maxHunger, player.hunger + 3); } },
+    { id: "potion", label: "Random Potion", desc: "Add to inventory", apply: () => { player.inventory.push(POTIONS[rand(0, POTIONS.length - 1)]); } },
+    { id: "healPotion", label: "Health Potion", desc: "Add to inventory", apply: () => { player.inventory.push(healthPotion); } },
+  ];
+
+  const shuffled = shuffleInPlace(pool.slice());
+  return shuffled.slice(0, 3);
+}
+
+function applyFloorReward(reward) {
+  if (!reward || typeof reward.apply !== "function") return;
+  reward.apply();
+  addLog(`Floor reward: ${reward.label}`, "loot");
+  playSound?.("loot");
+}
+
 function showFloorTransition() {
   const transitionEl = document.getElementById("floorTransition");
   if (!transitionEl) {
@@ -491,6 +717,9 @@ function showFloorTransition() {
   stopAutoMove();
   setInvestigateArmed(false);
   gamePaused = true;
+
+  const rewards = getFloorRewardChoices();
+  let selectedRewardId = settings.confirmDescend ? null : rewards[0]?.id || null;
   
   transitionEl.style.display = "flex";
   transitionEl.innerHTML = `
@@ -502,6 +731,20 @@ function showFloorTransition() {
       ${floorStats.damageDealt ? `Damage Dealt: ${floorStats.damageDealt}<br>` : ""}
       ${floorStats.damageTaken ? `Damage Taken: ${floorStats.damageTaken}<br>` : ""}
     </div>
+    <div style="margin: 12px 0; text-align:center;">
+      <div style="color: var(--accent); margin-bottom: 8px; font-weight: bold;">Choose a reward</div>
+      <div style="display:flex; gap: 10px; justify-content:center; flex-wrap: wrap;">
+        ${rewards
+          .map(
+            (r) => `<button type="button" data-reward="${escapeHtml(r.id)}" style="min-width: 160px; padding: 10px 14px; border-radius: 10px; border: 2px solid rgba(0,255,255,0.35); background: rgba(0,0,0,0.75); color: var(--accent);">
+              <div style="font-weight:700;">${escapeHtml(r.label)}</div>
+              <div style="font-size: 0.85em; opacity: 0.8;">${escapeHtml(r.desc)}</div>
+            </button>`,
+          )
+          .join("")}
+      </div>
+      ${settings.confirmDescend ? `<div style="margin-top: 8px; font-size: 0.85em; opacity: 0.8;">(Optional — you can skip)</div>` : `<div style="margin-top: 8px; font-size: 0.85em; opacity: 0.8;">(Auto-selected)</div>`}
+    </div>
     ${
       settings.confirmDescend
         ? `<div style="display:flex; gap: 10px; justify-content:center; flex-wrap: wrap;">
@@ -512,10 +755,31 @@ function showFloorTransition() {
     }
   `;
   
+  // Reward selection
+  const rewardBtns = Array.from(transitionEl.querySelectorAll("button[data-reward]"));
+  const syncRewardUi = () => {
+    for (const b of rewardBtns) {
+      const isSel = b.dataset.reward === selectedRewardId;
+      b.style.borderColor = isSel ? "var(--accent)" : "rgba(0,255,255,0.35)";
+      b.style.background = isSel ? "rgba(0,255,255,0.12)" : "rgba(0,0,0,0.75)";
+    }
+  };
+  for (const b of rewardBtns) {
+    b.onclick = () => {
+      selectedRewardId = b.dataset.reward || null;
+      playSound?.("menu");
+      syncRewardUi();
+    };
+  }
+  syncRewardUi();
+
   const btn = document.getElementById("continueBtn");
   if (btn) {
     btn.onclick = () => {
       transitionEl.style.display = "none";
+      const chosen = rewards.find((r) => r.id === selectedRewardId);
+      if (chosen) applyFloorReward(chosen);
+      playSound?.("floor");
       floor++;
       generateFloor();
     };
@@ -540,6 +804,9 @@ function showFloorTransition() {
     setTimeout(() => {
       if (transitionEl && transitionEl.style.display !== "none") {
         transitionEl.style.display = "none";
+        const chosen = rewards.find((r) => r.id === selectedRewardId) || rewards[0];
+        if (chosen) applyFloorReward(chosen);
+        playSound?.("floor");
         floor++;
         generateFloor();
       }
@@ -586,6 +853,10 @@ function deserializeHiddenArea(ha) {
 
 function saveGame(saveName = null) {
   try {
+    const trimmedLog = Array.isArray(logHistory) ? logHistory.slice(-200) : [];
+    const exploredArr = Array.from(explored || []);
+    const trimmedExplored = exploredArr.length > 25000 ? exploredArr.slice(-25000) : exploredArr;
+
     const saveData = {
       id: `save_${Date.now()}`,
       name: saveName || `Save ${new Date().toLocaleString()}`,
@@ -600,13 +871,13 @@ function saveGame(saveName = null) {
         zoomScale,
         floorStats,
         hiddenTrapCount,
-        explored: Array.from(explored),
+        explored: trimmedExplored,
         map,
         rooms,
         enemies,
         hiddenArea: serializeHiddenArea(hiddenArea),
         mouse,
-        logHistory,
+        logHistory: trimmedLog,
       },
     };
     
@@ -625,10 +896,27 @@ function saveGame(saveName = null) {
     saves.sort((a, b) => b.timestamp - a.timestamp);
     const limitedSaves = saves.slice(0, 5);
     
-    const ok = saveSavesList(limitedSaves);
+    let ok = saveSavesList(limitedSaves);
     if (!ok) {
-      addLog("Save failed (storage full?)", "danger");
-      return false;
+      // Fallback: try a smaller save (drop explored, further trim log).
+      try {
+        const lite = typeof structuredClone === "function" ? structuredClone(saveData) : JSON.parse(JSON.stringify(saveData));
+        if (lite?.state) {
+          lite.state.explored = [];
+          lite.state.logHistory = trimmedLog.slice(-50);
+        }
+        const saves2 = getAllSaves().sort((a, b) => b.timestamp - a.timestamp).slice(0, 4);
+        saves2.unshift(lite);
+        ok = saveSavesList(saves2);
+      } catch {
+        // ignore
+      }
+      if (!ok) {
+        addLog("Save failed (storage full?)", "danger");
+        return false;
+      }
+      addLog("Saved (lite)", "info");
+      return true;
     }
     addLog(`Game saved: ${saveData.name}`, "info");
     return true;
@@ -894,6 +1182,30 @@ function showMainMenuSettings() {
           Auto-Save
         </label>
         <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+          <input type="checkbox" ${settings.soundEnabled ? "checked" : ""} id="setting-sound" style="width: 20px; height: 20px;">
+          Sound
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+          <input type="checkbox" ${settings.largeText ? "checked" : ""} id="setting-large-text" style="width: 20px; height: 20px;">
+          Large Text
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+          <input type="checkbox" ${settings.highContrast ? "checked" : ""} id="setting-high-contrast" style="width: 20px; height: 20px;">
+          High Contrast
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+          <input type="checkbox" ${settings.reducedMotion ? "checked" : ""} id="setting-reduced-motion" style="width: 20px; height: 20px;">
+          Reduced Motion
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+          <input type="checkbox" ${settings.reducedFlashing ? "checked" : ""} id="setting-reduced-flashing" style="width: 20px; height: 20px;">
+          Reduced Flashing
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+          <input type="checkbox" ${settings.diagonalMelee ? "checked" : ""} id="setting-diagonal-melee" style="width: 20px; height: 20px;">
+          Diagonal Melee
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
           <input type="checkbox" ${settings.haptics ? "checked" : ""} id="setting-haptics" style="width: 20px; height: 20px;">
           Haptics (vibration)
         </label>
@@ -916,6 +1228,12 @@ function showMainMenuSettings() {
   const damageCheck = document.getElementById("setting-damage");
   const healthCheck = document.getElementById("setting-health");
   const autosaveCheck = document.getElementById("setting-autosave");
+  const soundCheck = document.getElementById("setting-sound");
+  const largeTextCheck = document.getElementById("setting-large-text");
+  const highContrastCheck = document.getElementById("setting-high-contrast");
+  const reducedMotionCheck = document.getElementById("setting-reduced-motion");
+  const reducedFlashingCheck = document.getElementById("setting-reduced-flashing");
+  const diagonalMeleeCheck = document.getElementById("setting-diagonal-melee");
   const hapticsCheck = document.getElementById("setting-haptics");
   const confirmDescendCheck = document.getElementById("setting-confirm-descend");
   
@@ -940,6 +1258,30 @@ function showMainMenuSettings() {
       localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
     });
   }
+
+  if (soundCheck) {
+    soundCheck.addEventListener("change", (e) => {
+      settings.soundEnabled = e.target.checked;
+      localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+      // Tiny confirmation ping.
+      if (settings.soundEnabled) playSound("menu");
+    });
+  }
+
+  const bindA11y = (el, key) => {
+    if (!el) return;
+    el.addEventListener("change", (e) => {
+      settings[key] = !!e.target.checked;
+      localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+      applyAccessibilitySettings();
+    });
+  };
+
+  bindA11y(largeTextCheck, "largeText");
+  bindA11y(highContrastCheck, "highContrast");
+  bindA11y(reducedMotionCheck, "reducedMotion");
+  bindA11y(reducedFlashingCheck, "reducedFlashing");
+  bindA11y(diagonalMeleeCheck, "diagonalMelee");
 
   if (hapticsCheck) {
     hapticsCheck.addEventListener("change", (e) => {
@@ -1034,21 +1376,21 @@ function getInvestigationInfoAt(tx, ty) {
     return { kind: isFalseWall ? "falseWall" : "wall" };
   }
 
-  const loot = map[`${key}_loot`];
+  const loot = lootAtKey(key);
   if (loot) {
     const effect = String(loot?.effect || "").toLowerCase();
     if (effect === "food") return { kind: "food", food: loot };
     return { kind: "potion", potion: loot };
   }
 
-  const trap = map[`${key}_trap`];
+  const trap = trapAtKey(key);
   if (trap) return { kind: "trap", trap };
 
-  const ch = map[key] || "#";
-  if (ch === "T") return { kind: "trapdoor" };
-  if (ch === "C") return { kind: "campfire" };
-  if (ch === "$") return { kind: "shop" };
-  if (ch === "#") return { kind: "wall" };
+  const ch = tileAtKey(key);
+  if (ch === TILE.TRAPDOOR) return { kind: "trapdoor" };
+  if (ch === TILE.CAMPFIRE) return { kind: "campfire" };
+  if (ch === TILE.SHOP) return { kind: "shop" };
+  if (ch === TILE.WALL) return { kind: "wall" };
   return { kind: "floor" };
 }
 
@@ -1084,7 +1426,7 @@ function setTab(tab) {
 }
 
 function canMove(x, y) {
-  const ch = map[`${x},${y}`];
+  const ch = tileAt(x, y);
   if (!isWalkableTile(ch)) return false;
   if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(keyOf(x, y))) return false;
   if (enemies.some((e) => e.x === x && e.y === y)) return false;
@@ -1093,14 +1435,14 @@ function canMove(x, y) {
 
 function canEnemyMove(x, y) {
   const k = keyOf(x, y);
-  const ch = map[k];
+  const ch = tileAtKey(k);
   if (!isWalkableTile(ch)) return false;
   if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k)) return false;
   if (enemies.some((e) => e.x === x && e.y === y)) return false;
 
   // Enemies avoid visible traps (~), but can still step on hidden traps (they look like floor).
-  if (ch === "~") return false;
-  const trap = map[`${k}_trap`];
+  if (ch === TILE.TRAP_VISIBLE) return false;
+  const trap = trapAtKey(k);
   if (trap && !trap.hidden) return false;
 
   return true;
@@ -1116,8 +1458,8 @@ function isPlayerWalkable(x, y) {
   // Hidden area tiles block movement until revealed, except the entrance false-wall tiles.
   if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k) && !hiddenArea.falseWalls?.has(k)) return false;
 
-  const tile = map[k] || "#";
-  if (tile === "#") return false;
+  const tile = tileAtKey(k);
+  if (tile === TILE.WALL) return false;
   if (enemies.some((e) => e.x === x && e.y === y)) return false;
   return true;
 }

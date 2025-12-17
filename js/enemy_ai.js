@@ -63,6 +63,61 @@ function buildMousePathBfs(startX, startY, goalX, goalY) {
   return steps;
 }
 
+function buildEnemyPathBfs(startX, startY, goalX, goalY, limit = 22) {
+  const startKey = keyOf(startX, startY);
+  const goalKey = keyOf(goalX, goalY);
+  if (startKey === goalKey) return [];
+
+  const prev = new Map();
+  prev.set(startKey, null);
+  const q = [{ x: startX, y: startY }];
+  let qi = 0;
+
+  const dirs = [
+    { dx: 1, dy: 0 },
+    { dx: -1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: 0, dy: -1 },
+    { dx: 1, dy: 1 },
+    { dx: 1, dy: -1 },
+    { dx: -1, dy: 1 },
+    { dx: -1, dy: -1 },
+  ];
+
+  while (qi < q.length) {
+    const cur = q[qi++];
+    for (const d of dirs) {
+      const nx = cur.x + d.dx;
+      const ny = cur.y + d.dy;
+      if (Math.abs(nx - startX) > limit || Math.abs(ny - startY) > limit) continue;
+      const nk = keyOf(nx, ny);
+      if (prev.has(nk)) continue;
+      if (!isStepAllowed(cur.x, cur.y, nx, ny, canEnemyMove)) continue;
+      prev.set(nk, keyOf(cur.x, cur.y));
+      if (nk === goalKey) {
+        qi = q.length;
+        break;
+      }
+      q.push({ x: nx, y: ny });
+    }
+  }
+
+  if (!prev.has(goalKey)) return null;
+
+  const steps = [];
+  let curKey = goalKey;
+  while (curKey && curKey !== startKey) {
+    const parentKey = prev.get(curKey);
+    if (!parentKey) break;
+    const [cx, cy] = curKey.split(",").map(Number);
+    const [px, py] = parentKey.split(",").map(Number);
+    steps.push({ x: cx, y: cy, dx: cx - px, dy: cy - py });
+    curKey = parentKey;
+  }
+  steps.reverse();
+  return steps;
+}
+
 function moveMouse() {
   if (!mouse || !hiddenArea) return;
 
@@ -157,11 +212,10 @@ function moveMouse() {
 }
 
 function moveEnemies() {
-  const canEnemyStep = (fromX, fromY, toX, toY) => isStepAllowed(fromX, fromY, toX, toY, canEnemyMove);
-
   for (let idx = enemies.length - 1; idx >= 0; idx--) {
     const e = enemies[idx];
     const eName = e?.name || "Enemy";
+    if (e?.isBoss) e.bossCd = Math.max(0, Number(e.bossCd || 0) - 1);
     const dx = player.x - e.x;
     const dy = player.y - e.y;
     const dist = Math.max(Math.abs(dx), Math.abs(dy));
@@ -179,7 +233,64 @@ function moveEnemies() {
       continue;
     }
 
-    if (dist === 1) {
+    // Boss specials (simple but distinct).
+    if (e?.isBoss && dist > 1) {
+      // Summon once when below half HP.
+      if (!e.bossSummoned && typeof e.maxHp === "number" && e.hp <= e.maxHp * 0.5) {
+        e.bossSummoned = true;
+        const spawnSpots = shuffleInPlace([
+          { x: e.x + 1, y: e.y },
+          { x: e.x - 1, y: e.y },
+          { x: e.x, y: e.y + 1 },
+          { x: e.x, y: e.y - 1 },
+          { x: e.x + 1, y: e.y + 1 },
+          { x: e.x + 1, y: e.y - 1 },
+          { x: e.x - 1, y: e.y + 1 },
+          { x: e.x - 1, y: e.y - 1 },
+        ]);
+        const spot = spawnSpots.find((p) => canEnemyMove(p.x, p.y));
+        if (spot) {
+          enemies.push({
+            ...RAT,
+            x: spot.x,
+            y: spot.y,
+            hp: RAT.hp,
+            maxHp: RAT.hp,
+            dmg: RAT.dmg,
+            toughness: 0,
+            speed: 1,
+            statusEffects: {},
+          });
+          addLog(`${eName} summons a rat!`, "danger");
+          playSound?.("crit");
+        }
+      }
+
+      // Ranged slam: occasionally applies slow.
+      if (e.bossCd <= 0 && dist <= 3 && rollChance(0.22)) {
+        const rolled = Math.max(0, Math.floor((e.dmg || 1) * 0.6));
+        const dmg = Math.max(0, rolled - player.toughness);
+        if (dmg > 0) {
+          player.hp -= dmg;
+          addLog(`${eName} hurls a crushing blow for ${dmg}`, "enemy");
+          showDamageNumber(player.x, player.y, dmg, "enemy");
+          playSound?.("hurt");
+          vibrate(25);
+          floorStats.damageTaken += dmg;
+        } else {
+          addLog(`${eName}'s crushing blow glances off you`, "block");
+        }
+        addStatus(player, "slow", 2, 0);
+        addLog("You are slowed!", "danger");
+        e.bossCd = 3;
+        tickStatusEffects(e, "enemy");
+        continue;
+      }
+    }
+
+    const canMeleeDiagonally = settings?.diagonalMelee !== false;
+    const isDiagonalAdj = Math.abs(dx) === 1 && Math.abs(dy) === 1;
+    if (dist === 1 && (canMeleeDiagonally || !isDiagonalAdj)) {
       // Check invisibility - enemies can't see invisible players
       if (player.statusEffects?.invisibility?.turns) {
         // 80% chance to miss, 20% chance enemy still detects you
@@ -203,11 +314,12 @@ function moveEnemies() {
       if (dmg > 0) {
         addLog(`${eName} hits you for ${dmg}`, "enemy");
         showDamageNumber(player.x, player.y, dmg, "enemy");
+        playSound?.("hurt");
         vibrate(20);
         floorStats.damageTaken += dmg;
         // Visual feedback
         try {
-          if (gameEl) {
+          if (gameEl && !settings?.reducedMotion) {
             gameEl.style.transition = "filter 0.1s";
             gameEl.style.filter = "brightness(1.5)";
             setTimeout(() => {
@@ -227,6 +339,7 @@ function moveEnemies() {
       tickStatusEffects(e, "enemy");
       if (e.hp <= 0) {
         addLog(`${eName} dies`, "death");
+        floorStats.enemiesKilled = (floorStats.enemiesKilled || 0) + 1;
         enemies.splice(idx, 1);
       }
       continue;
@@ -254,7 +367,7 @@ function moveEnemies() {
         let bestD = Infinity;
         for (const c of candidates) {
           if (c.x === e.x && c.y === e.y) continue;
-          if (!canEnemyStep(e.x, e.y, c.x, c.y)) continue;
+          if (!isStepAllowed(e.x, e.y, c.x, c.y, canEnemyMove)) continue;
           const d2 = chebDist(c.x, c.y, player.x, player.y);
           if (d2 < bestD) {
             bestD = d2;
@@ -262,12 +375,18 @@ function moveEnemies() {
           }
         }
 
-        if (best) {
-          // Bounds check
-          const tile = map[keyOf(best.x, best.y)] || "#";
-          if (tile !== "#") {
-            e.x = best.x;
-            e.y = best.y;
+        if (best && bestD < currentDist) {
+          e.x = best.x;
+          e.y = best.y;
+        } else {
+          // If greedy movement fails (blocked corridors), fall back to bounded BFS.
+          const path = buildEnemyPathBfs(e.x, e.y, player.x, player.y, Math.max(10, (e.sight || 5) + 6));
+          if (path && path.length) {
+            const step = path[0];
+            if (isStepAllowed(e.x, e.y, step.x, step.y, canEnemyMove)) {
+              e.x = step.x;
+              e.y = step.y;
+            }
           }
         }
       } else {
@@ -287,7 +406,7 @@ function moveEnemies() {
           const ny = e.y + my;
           // Bounds check - ensure tile exists and is walkable
           const tile = map[keyOf(nx, ny)] || "#";
-          if (tile !== "#" && canEnemyStep(e.x, e.y, nx, ny)) {
+          if (tile !== "#" && isStepAllowed(e.x, e.y, nx, ny, canEnemyMove)) {
             e.x = nx;
             e.y = ny;
             break;
@@ -309,6 +428,7 @@ function moveEnemies() {
     tickStatusEffects(e, "enemy");
     if (e.hp <= 0) {
       addLog(`${eName} dies`, "death");
+      floorStats.enemiesKilled = (floorStats.enemiesKilled || 0) + 1;
       enemies.splice(idx, 1);
     }
   }
