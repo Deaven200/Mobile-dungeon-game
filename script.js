@@ -925,6 +925,106 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  /* ===================== MAIN MENU: LEGEND ===================== */
+
+  let legendTab = "buildings"; // buildings | food | potions | enemies | other
+
+  function showLegendMenu(tab = legendTab) {
+    const mainMenuEl = document.getElementById("mainMenu");
+    if (!mainMenuEl) return;
+
+    legendTab = tab || "buildings";
+
+    const tabBtn = (id, label) => `
+      <button type="button" class="${legendTab === id ? "is-active" : ""}" data-legend-tab="${id}">
+        ${escapeHtml(label)}
+      </button>
+    `;
+
+    const entry = (symbol, name, desc, color = "var(--accent)") => `
+      <div style="display:flex; gap:12px; align-items:flex-start; padding:10px; border:1px solid rgba(0,255,255,0.22); border-radius:12px; background: rgba(0,0,0,0.65);">
+        <div style="min-width: 48px; text-align:center; font-size: 1.6em; line-height: 1; color:${color}; text-shadow: 0 0 8px rgba(0,255,255,0.25);">
+          ${escapeHtml(symbol)}
+        </div>
+        <div style="flex:1 1 auto;">
+          <div style="font-weight: bold; color: var(--accent); margin-bottom: 4px;">${escapeHtml(name)}</div>
+          <div style="opacity: 0.9; line-height: 1.25;">${escapeHtml(desc)}</div>
+        </div>
+      </div>
+    `;
+
+    let content = "";
+    if (legendTab === "buildings") {
+      content = [
+        entry("T", "Trapdoor", "Go down to the next floor.", "#00ff3a"),
+        entry("C", "Campfire", "Cook raw food in your inventory.", "orange"),
+        entry("$", "Shop", "A place to buy things (if you have something to trade).", "#ffd700"),
+      ].join('<div style="height:10px;"></div>');
+    } else if (legendTab === "food") {
+      content = [
+        entry("f", "Mushroom", "Food. Restores a little hunger and heals a bit.", "#cc88cc"),
+        entry("y", "Berry", "Food. Restores a little hunger.", "#ff4477"),
+        entry("M", "Meat", "Food. Can be cooked at a campfire for better results.", "#ffb65c"),
+      ].join('<div style="height:10px;"></div>');
+    } else if (legendTab === "potions") {
+      content = [
+        entry("P", "Health Potion", "Fully heals you and increases your max HP.", "#ff3b3b"),
+        entry("P", "Strength Potion", "Permanently increases your damage.", "#ffe600"),
+        entry("P", "Toughness Potion", "Permanently reduces damage taken.", "#cfcfcf"),
+        entry("P", "Speed Potion", "Temporary speed boost.", "#00ffff"),
+        entry("P", "Invisibility Potion", "Temporary stealth effect.", "#8888ff"),
+        entry("P", "Explosive Potion", "Creates an explosion effect.", "#ff8800"),
+      ].join('<div style="height:10px;"></div>');
+    } else if (legendTab === "enemies") {
+      content = [
+        entry("r", "Rat", "Early enemy. Will attack if you get close.", "#bdbdbd"),
+        entry("g", "Goblin", "Stronger enemy found on later floors.", "#00ff3a"),
+        entry("b", "Bat", "Fast enemy that can act more often.", "#a055a0"),
+        entry("s", "Skeleton", "Tough enemy with solid HP.", "#ffffff"),
+        entry("o", "Orc", "Heavy hitter with toughness.", "#8b4513"),
+      ].join('<div style="height:10px;"></div>');
+    } else {
+      content = [
+        entry("@", "You", "The player character.", "cyan"),
+        entry(".", "Floor", "Walkable tile.", "#777"),
+        entry("#", "Wall", "Blocks movement.", "lime"),
+        entry("~", "Trap (visible)", "Hurts when stepped on.", "orange"),
+        entry(".", "Trap (hidden)", "Looks like floor but flashes sometimes.", "orange"),
+        entry("m", "Mouse", "A hint creature that can lead you to secrets.", "#eee"),
+        entry("#", "False wall", "Looks like a wall until revealed.", "#0a0"),
+      ].join('<div style="height:10px;"></div>');
+    }
+
+    mainMenuEl.innerHTML = `
+      <div class="menu-screen">
+        <h1 class="menu-title">Legend</h1>
+        <div class="menu-container" style="width: 100%;">
+          <div class="menu-tabs">
+            ${tabBtn("buildings", "Buildings")}
+            ${tabBtn("food", "Food")}
+            ${tabBtn("potions", "Potions")}
+            ${tabBtn("enemies", "Enemies")}
+            ${tabBtn("other", "Etc")}
+          </div>
+          <div class="menu-content">
+            ${content}
+          </div>
+        </div>
+        <div class="menu-buttons" style="margin-top: 12px;">
+          <button type="button" class="menu-screen-button" id="backToMainMenuBtn">Back to Menu</button>
+        </div>
+      </div>
+    `;
+
+    // Bind tabs
+    mainMenuEl.querySelectorAll("[data-legend-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => showLegendMenu(btn.dataset.legendTab));
+    });
+
+    const backBtn = document.getElementById("backToMainMenuBtn");
+    if (backBtn) backBtn.addEventListener("click", initMainMenu);
+  }
+
   function initMainMenu() {
     const mainMenuEl = document.getElementById("mainMenu");
     if (!mainMenuEl) return;
@@ -939,6 +1039,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="menu-buttons">
           <button type="button" id="startGameBtn" class="menu-screen-button">Start Game</button>
           <button type="button" id="loadGameBtn" class="menu-screen-button">Load Game</button>
+          <button type="button" id="legendMenuBtn" class="menu-screen-button">Legend</button>
           <button type="button" id="settingsMenuBtn" class="menu-screen-button">Settings</button>
           ${gameStarted ? '<button type="button" id="quitToMenuBtn" class="menu-screen-button">Quit to Menu</button>' : ''}
           <button type="button" id="quitGameBtn" class="menu-screen-button" style="margin-top: 10px; border-color: #ff4444; color: #ff4444;">Quit Game</button>
@@ -950,12 +1051,14 @@ document.addEventListener("DOMContentLoaded", () => {
     // Re-bind event handlers
     const startBtn = document.getElementById("startGameBtn");
     const loadBtn = document.getElementById("loadGameBtn");
+    const legendBtn = document.getElementById("legendMenuBtn");
     const settingsBtn = document.getElementById("settingsMenuBtn");
     const quitToMenuBtn = document.getElementById("quitToMenuBtn");
     const quitGameBtn = document.getElementById("quitGameBtn");
     
     if (startBtn) startBtn.addEventListener("click", startGame);
     if (loadBtn) loadBtn.addEventListener("click", showLoadMenu);
+    if (legendBtn) legendBtn.addEventListener("click", () => showLegendMenu("buildings"));
     if (settingsBtn) settingsBtn.addEventListener("click", showMainMenuSettings);
     if (quitToMenuBtn) quitToMenuBtn.addEventListener("click", quitToMenu);
     if (quitGameBtn) quitGameBtn.addEventListener("click", quitGame);
