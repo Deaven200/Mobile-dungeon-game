@@ -16,6 +16,18 @@ function useInventoryItem(i) {
     playSound?.("menu");
     return;
   }
+  // Trinkets are equipped, not used.
+  if (p.effect === "trinket") {
+    addLog("Trinkets must be equipped (Inventory).", "info");
+    playSound?.("menu");
+    return;
+  }
+  // Materials are used by crafting/blacksmith, not consumed directly.
+  if (p.effect === "material") {
+    addLog("Materials are used at the blacksmith.", "info");
+    playSound?.("menu");
+    return;
+  }
 
   if (p.effect === "fullHeal") {
     player.maxHp += p.value;
@@ -130,6 +142,11 @@ function useInventoryItem(i) {
   }
 
   player.inventory.splice(i, 1);
+  try {
+    syncHotbar?.();
+  } catch {
+    // ignore
+  }
   draw();
 }
 

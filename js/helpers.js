@@ -258,6 +258,10 @@ const TILE = Object.freeze({
   GRASS: ",",
   ENTRANCE: "D", // courtyard -> dungeon
   UPSTAIRS: "U", // dungeon -> courtyard
+  BLACKSMITH: "K",
+  BOUNTY: "!",
+  CRATE: "X",
+  BARREL: "O",
 });
 
 // Map access helpers (still backed by the existing string-keyed map object).
@@ -306,6 +310,19 @@ function clearTrapAtKey(k) {
   delete map[trapKeyOfKey(k)];
 }
 
+function propKeyOfKey(k) {
+  return `${k}_prop`;
+}
+function propAtKey(k) {
+  return map[propKeyOfKey(k)] || null;
+}
+function setPropAtKey(k, prop) {
+  map[propKeyOfKey(k)] = prop;
+}
+function clearPropAtKey(k) {
+  delete map[propKeyOfKey(k)];
+}
+
 function pointInRoom(x, y, r) {
   return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
 }
@@ -324,7 +341,9 @@ function isWalkableTile(ch) {
     ch === TILE.CAMPFIRE ||
     ch === TILE.SHOP ||
     ch === TILE.ENTRANCE ||
-    ch === TILE.UPSTAIRS
+    ch === TILE.UPSTAIRS ||
+    ch === TILE.BLACKSMITH ||
+    ch === TILE.BOUNTY
   );
 }
 
@@ -336,6 +355,11 @@ function addStatus(target, kind, turns, value = 0) {
   if (!target) return;
   if (!target.statusEffects) target.statusEffects = {};
   target.statusEffects[kind] = { turns, value };
+  try {
+    if (target === player) recordCodexStatus(kind);
+  } catch {
+    // ignore
+  }
 }
 
 function getBurning(target) {
@@ -353,6 +377,11 @@ function addBurning(target, turns = 3, dmgPerTurn = 1) {
       dmgPerTurn: Math.max(Number(cur.dmgPerTurn || 0), Number(dmgPerTurn || 0)),
     };
   }
+  try {
+    if (target === player) recordCodexStatus("burning");
+  } catch {
+    // ignore
+  }
 }
 
 function addPoisoned(target, turns = 3, dmgPerTurn = 1) {
@@ -365,6 +394,11 @@ function addPoisoned(target, turns = 3, dmgPerTurn = 1) {
       turns: Math.max(Number(cur.turns || 0), Number(turns || 0)),
       dmgPerTurn: Math.max(Number(cur.dmgPerTurn || 0), Number(dmgPerTurn || 0)),
     };
+  }
+  try {
+    if (target === player) recordCodexStatus("poisoned");
+  } catch {
+    // ignore
   }
 }
 
@@ -379,6 +413,12 @@ function tickStatusEffects(target, targetKind = "player") {
     if (dmg > 0) {
       target.hp -= dmg;
       if (targetKind === "player") {
+        try {
+          setLastDamageSource({ kind: "status", name: "Burning", amount: dmg, floor });
+          runStats.damageTaken = Math.max(0, Number(runStats.damageTaken || 0) + dmg);
+        } catch {
+          // ignore
+        }
         addLog(`You are burning: -${dmg} hp`, "danger");
         showDamageNumber(target.x || player.x, target.y || player.y, dmg, "enemy");
       }
@@ -394,6 +434,12 @@ function tickStatusEffects(target, targetKind = "player") {
     if (dmg > 0) {
       target.hp -= dmg;
       if (targetKind === "player") {
+        try {
+          setLastDamageSource({ kind: "status", name: "Poisoned", amount: dmg, floor });
+          runStats.damageTaken = Math.max(0, Number(runStats.damageTaken || 0) + dmg);
+        } catch {
+          // ignore
+        }
         addLog(`Poisoned: -${dmg} hp`, "danger");
         showDamageNumber(target.x || player.x, target.y || player.y, dmg, "enemy");
       }
@@ -448,6 +494,578 @@ function escapeHtml(s) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
+/* ===================== META SYSTEMS (Hotbar / Codex / Run Stats / Feedback) ===================== */
+
+let _itemIdCounter = 1;
+function newItemId() {
+  // Short, stable-enough id for a run + saves.
+  return `${Date.now().toString(36)}_${(_itemIdCounter++).toString(36)}`;
+}
+
+function ensureItemId(it) {
+  if (!it || typeof it !== "object") return it;
+  if (!it.iid) it.iid = newItemId();
+  return it;
+}
+
+function normalizePlayerMeta() {
+  if (!player || typeof player !== "object") return;
+  if (!Array.isArray(player.inventory)) player.inventory = [];
+  for (const it of player.inventory) ensureItemId(it);
+
+  if (!Array.isArray(player.hotbar)) player.hotbar = [null, null, null, null];
+  if (player.hotbar.length !== 4) player.hotbar = [player.hotbar[0] ?? null, player.hotbar[1] ?? null, player.hotbar[2] ?? null, player.hotbar[3] ?? null];
+
+  if (!player.trinkets || typeof player.trinkets !== "object") player.trinkets = { a: null, b: null };
+  if (!("a" in player.trinkets)) player.trinkets.a = null;
+  if (!("b" in player.trinkets)) player.trinkets.b = null;
+
+  if (!player.codex || typeof player.codex !== "object") player.codex = { enemies: {}, items: {}, trinkets: {}, materials: {}, statuses: {} };
+  for (const k of ["enemies", "items", "trinkets", "materials", "statuses"]) {
+    if (!player.codex[k] || typeof player.codex[k] !== "object") player.codex[k] = {};
+  }
+
+  if (!player.inventorySort) player.inventorySort = "type";
+
+  if (!player.bounties || typeof player.bounties !== "object") {
+    player.bounties = { dayKey: "", offers: [], accepted: [], claimed: {} };
+  }
+  if (!Array.isArray(player.bounties.offers)) player.bounties.offers = [];
+  if (!Array.isArray(player.bounties.accepted)) player.bounties.accepted = [];
+  if (!player.bounties.claimed || typeof player.bounties.claimed !== "object") player.bounties.claimed = {};
+}
+
+function findInventoryIndexById(iid) {
+  if (!iid) return -1;
+  const inv = player.inventory || [];
+  for (let i = 0; i < inv.length; i++) {
+    if (inv[i]?.iid === iid) return i;
+  }
+  return -1;
+}
+
+function syncHotbar() {
+  normalizePlayerMeta();
+  for (let s = 0; s < 4; s++) {
+    const iid = player.hotbar[s];
+    if (!iid) continue;
+    if (findInventoryIndexById(iid) < 0) player.hotbar[s] = null;
+  }
+}
+
+function assignHotbarSlot(slotIdx, invIndex) {
+  const s = Number(slotIdx);
+  const idx = Number(invIndex);
+  if (!Number.isFinite(s) || s < 0 || s > 3) return;
+  if (!Number.isFinite(idx) || idx < 0) return;
+  const it = player.inventory?.[idx];
+  if (!it) return;
+  ensureItemId(it);
+  player.hotbar[s] = it.iid;
+  playSound?.("menu");
+  vibrate(8);
+  draw();
+}
+
+function clearHotbarSlot(slotIdx) {
+  const s = Number(slotIdx);
+  if (!Number.isFinite(s) || s < 0 || s > 3) return;
+  player.hotbar[s] = null;
+  playSound?.("menu");
+  draw();
+}
+
+function useHotbarSlot(slotIdx) {
+  if (gamePaused || menuOpen) return;
+  syncHotbar();
+  const s = Number(slotIdx);
+  if (!Number.isFinite(s) || s < 0 || s > 3) return;
+  const iid = player.hotbar[s];
+  if (!iid) {
+    addLog("Hotbar slot empty", "info");
+    playSound?.("menu");
+    return;
+  }
+  const invIdx = findInventoryIndexById(iid);
+  if (invIdx < 0) {
+    player.hotbar[s] = null;
+    return;
+  }
+  const it = player.inventory?.[invIdx];
+  const eff = String(it?.effect || "").toLowerCase();
+  if (eff === "weapon") {
+    equipToHand?.("main", invIdx);
+    return;
+  }
+  useInventoryItem?.(invIdx);
+}
+
+function codexInc(section, key, n = 1) {
+  normalizePlayerMeta();
+  const s = String(section || "");
+  const k = String(key || "");
+  if (!s || !k) return;
+  if (!player.codex[s]) player.codex[s] = {};
+  const curRaw = Number(player.codex[s][k]);
+  const cur = Number.isFinite(curRaw) ? curRaw : 0;
+  const addRaw = Number(n);
+  const add = Number.isFinite(addRaw) ? addRaw : 0;
+  player.codex[s][k] = Math.max(0, cur + add);
+}
+
+function recordCodexEnemy(name) {
+  const n = String(name || "").trim();
+  if (!n) return;
+  codexInc("enemies", n, 0); // ensure exists
+}
+
+function recordCodexItem(it) {
+  if (!it) return;
+  const name = String(it?.name || "").trim() || "Unknown Item";
+  const eff = String(it?.effect || "").toLowerCase();
+  codexInc("items", name, 1);
+  if (eff === "trinket") codexInc("trinkets", name, 1);
+  if (eff === "material") codexInc("materials", name, 1);
+}
+
+function recordCodexItemSeen(it) {
+  if (!it) return;
+  const name = String(it?.name || "").trim() || "Unknown Item";
+  const eff = String(it?.effect || "").toLowerCase();
+  // Ensure it appears in codex without counting as "picked".
+  codexInc("items", name, 0);
+  if (eff === "trinket") codexInc("trinkets", name, 0);
+  if (eff === "material") codexInc("materials", name, 0);
+}
+window.recordCodexItemSeen = recordCodexItemSeen;
+
+function recordCodexStatus(kind) {
+  const k = String(kind || "").trim();
+  if (!k) return;
+  codexInc("statuses", k, 0);
+}
+
+function addItemToInventory(item, opts = {}) {
+  normalizePlayerMeta();
+  if (!item || typeof item !== "object") return false;
+  ensureItemId(item);
+  if (!item.pickedAt) item.pickedAt = Date.now();
+
+  const eff = String(item.effect || "").toLowerCase();
+  const cap = Math.max(0, Number(player.maxInventory ?? 10));
+
+  // Stack materials by matId to avoid inventory spam.
+  if (eff === "material" && item.matId) {
+    const id = String(item.matId);
+    const qty = Math.max(1, Math.floor(Number(item.qty || 1)));
+    const inv = player.inventory || [];
+    const existing = inv.find((it) => String(it?.effect || "").toLowerCase() === "material" && String(it?.matId || "") === id);
+    if (existing) {
+      existing.qty = Math.max(1, Math.floor(Number(existing.qty || 1))) + qty;
+      recordCodexItem(existing);
+      try {
+        bountyNotify?.({ type: "collectMat", matId: id, qty });
+      } catch {
+        // ignore
+      }
+      return true;
+    }
+    if (cap && inv.length >= cap) return false;
+    item.qty = qty;
+    inv.push(item);
+    recordCodexItem(item);
+    try {
+      bountyNotify?.({ type: "collectMat", matId: id, qty });
+    } catch {
+      // ignore
+    }
+    return true;
+  }
+
+  // Regular items
+  if (cap && (player.inventory?.length || 0) >= cap) return false;
+  player.inventory.push(item);
+  recordCodexItem(item);
+  if (eff === "weapon") noteBestWeaponCandidate(item);
+  syncHotbar();
+  return true;
+}
+window.addItemToInventory = addItemToInventory;
+
+function getMaterialCount(matId) {
+  normalizePlayerMeta();
+  const id = String(matId || "");
+  if (!id) return 0;
+  const it = (player.inventory || []).find((x) => String(x?.effect || "").toLowerCase() === "material" && String(x?.matId || "") === id);
+  return it ? Math.max(0, Math.floor(Number(it.qty || 0))) : 0;
+}
+function consumeMaterial(matId, qty) {
+  normalizePlayerMeta();
+  const id = String(matId || "");
+  const q = Math.max(1, Math.floor(Number(qty || 1)));
+  const inv = player.inventory || [];
+  const idx = inv.findIndex((x) => String(x?.effect || "").toLowerCase() === "material" && String(x?.matId || "") === id);
+  if (idx < 0) return false;
+  const it = inv[idx];
+  const have = Math.max(0, Math.floor(Number(it.qty || 0)));
+  if (have < q) return false;
+  const left = have - q;
+  if (left <= 0) inv.splice(idx, 1);
+  else it.qty = left;
+  syncHotbar();
+  return true;
+}
+window.getMaterialCount = getMaterialCount;
+window.consumeMaterial = consumeMaterial;
+
+function setInventorySort(mode) {
+  normalizePlayerMeta();
+  const m = String(mode || "").toLowerCase();
+  const allowed = new Set(["type", "name", "value", "rarity", "recent"]);
+  player.inventorySort = allowed.has(m) ? m : "type";
+  playSound?.("menu");
+  draw();
+}
+window.setInventorySort = setInventorySort;
+
+function adjustDifficulty(key, delta) {
+  const k = String(key || "");
+  const d = Number(delta || 0);
+  if (!Number.isFinite(d) || !k) return;
+  const allowed = new Set(["enemyHpMult", "enemyDmgMult", "lootMult", "hazardMult", "propDensity", "screenShakeIntensity"]);
+  if (!allowed.has(k)) return;
+  settings.difficultyPreset = "custom";
+  const cur = Number(settings[k] || 1);
+  const next = clamp(cur + d, 0, 3);
+  settings[k] = k === "screenShakeIntensity" ? clamp(next, 0.3, 2) : next;
+  window.gameSettings = settings;
+  try {
+    localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+  } catch {
+    // ignore
+  }
+  draw();
+}
+window.adjustDifficulty = adjustDifficulty;
+
+function resetRunStats() {
+  runStats = {
+    startedAt: Date.now(),
+    endedAt: 0,
+    floorsReached: 0,
+    enemiesKilled: 0,
+    itemsFound: 0,
+    trapsTriggered: 0,
+    damageDealt: 0,
+    damageTaken: 0,
+    goldEarned: 0,
+    propsDestroyed: 0,
+    bestWeaponName: "",
+    bestWeaponScore: 0,
+  };
+}
+
+function noteBestWeaponCandidate(it) {
+  if (!it || String(it.effect || "") !== "weapon") return;
+  const maxDmg = Math.max(1, Math.floor(Number(it.maxDamage || 1)));
+  const lvl = Math.max(1, Math.floor(Number(it.level || 1)));
+  const rar = typeof getRarity === "function" ? getRarity(it.rarity) : null;
+  const mult = Math.max(0.1, Number(rar?.mult || 1));
+  const score = Math.floor((maxDmg + lvl) * mult);
+  if (score > Number(runStats.bestWeaponScore || 0)) {
+    runStats.bestWeaponScore = score;
+    runStats.bestWeaponName = String(it.name || "");
+  }
+}
+
+function setLastDamageSource(src) {
+  if (!src || typeof src !== "object") return;
+  lastDamageSource = {
+    kind: String(src.kind || "unknown"),
+    name: String(src.name || "Unknown"),
+    amount: Math.max(0, Number(src.amount || 0)),
+    floor: Number.isFinite(Number(src.floor)) ? Number(src.floor) : floor,
+    time: Date.now(),
+    extra: src.extra || null,
+  };
+}
+
+let _shakeRaf = 0;
+function shakeScreen(intensity = 1, durationMs = 120) {
+  try {
+    if (!settings?.screenShake) return;
+    if (settings?.reducedMotion) return;
+    if (!gameEl) return;
+    const base = Math.max(0, Number(intensity || 1)) * Math.max(0.2, Number(settings.screenShakeIntensity || 1));
+    const dur = Math.max(40, Number(durationMs || 120));
+    const t0 = performance?.now?.() || Date.now();
+    if (_shakeRaf) cancelAnimationFrame(_shakeRaf);
+
+    const tick = () => {
+      const now = performance?.now?.() || Date.now();
+      const t = (now - t0) / dur;
+      if (t >= 1) {
+        gameEl.style.transform = "";
+        _shakeRaf = 0;
+        return;
+      }
+      // Ease out
+      const mag = base * (1 - t) * 3.0;
+      const dx = (rand01() * 2 - 1) * mag;
+      const dy = (rand01() * 2 - 1) * mag;
+      gameEl.style.transform = `translate(${dx}px, ${dy}px)`;
+      _shakeRaf = requestAnimationFrame(tick);
+    };
+    _shakeRaf = requestAnimationFrame(tick);
+  } catch {
+    // ignore
+  }
+}
+
+function flashGame(filterCss = "brightness(1.35)") {
+  try {
+    if (!settings?.hitFlash) return;
+    if (settings?.reducedFlashing) return;
+    if (!gameEl) return;
+    gameEl.style.transition = "filter 0.08s";
+    gameEl.style.filter = filterCss;
+    setTimeout(() => {
+      if (!gameEl) return;
+      gameEl.style.filter = "";
+      setTimeout(() => {
+        if (!gameEl) return;
+        gameEl.style.transition = "";
+      }, 90);
+    }, 90);
+  } catch {
+    // ignore
+  }
+}
+
+// Difficulty presets (applied to multipliers in settings).
+const DIFFICULTY_PRESETS = Object.freeze({
+  easy: { enemyHpMult: 0.85, enemyDmgMult: 0.8, lootMult: 1.15, hazardMult: 0.85, propDensity: 1.1 },
+  normal: { enemyHpMult: 1, enemyDmgMult: 1, lootMult: 1, hazardMult: 1, propDensity: 1 },
+  hard: { enemyHpMult: 1.2, enemyDmgMult: 1.25, lootMult: 0.95, hazardMult: 1.25, propDensity: 1.1 },
+});
+
+function applyDifficultyPreset(presetId) {
+  const id = String(presetId || settings?.difficultyPreset || "normal").toLowerCase();
+  const p = DIFFICULTY_PRESETS[id];
+  if (!p) return;
+  settings.difficultyPreset = id;
+  settings.enemyHpMult = p.enemyHpMult;
+  settings.enemyDmgMult = p.enemyDmgMult;
+  settings.lootMult = p.lootMult;
+  settings.hazardMult = p.hazardMult;
+  settings.propDensity = p.propDensity;
+  window.gameSettings = settings;
+}
+window.applyDifficultyPreset = applyDifficultyPreset;
+
+function getPlayerBonuses() {
+  const out = {
+    lootMult: 0,
+    toughness: 0,
+    dmg: 0,
+    critChance: 0,
+    lifeOnKill: 0,
+  };
+  try {
+    const tr = player?.trinkets;
+    const list = [tr?.a, tr?.b].filter(Boolean);
+    for (const it of list) {
+      const b = it?.bonuses;
+      if (!b || typeof b !== "object") continue;
+      if (Number.isFinite(Number(b.lootMult))) out.lootMult += Number(b.lootMult);
+      if (Number.isFinite(Number(b.toughness))) out.toughness += Number(b.toughness);
+      if (Number.isFinite(Number(b.dmg))) out.dmg += Number(b.dmg);
+      if (Number.isFinite(Number(b.critChance))) out.critChance += Number(b.critChance);
+      if (Number.isFinite(Number(b.lifeOnKill))) out.lifeOnKill += Number(b.lifeOnKill);
+    }
+  } catch {
+    // ignore
+  }
+  return out;
+}
+window.getPlayerBonuses = getPlayerBonuses;
+
+function equipTrinketToSlot(slotKey, invIndex) {
+  normalizePlayerMeta();
+  const slot = String(slotKey || "");
+  if (slot !== "a" && slot !== "b") return;
+  const idx = Number(invIndex);
+  if (!Number.isFinite(idx)) return;
+  const it = player.inventory?.[idx];
+  if (!it || String(it.effect || "") !== "trinket") {
+    addLog("That isn't a trinket.", "block");
+    return;
+  }
+  if (!player.trinkets) player.trinkets = { a: null, b: null };
+  const prev = player.trinkets[slot] || null;
+  player.trinkets[slot] = it;
+  player.inventory.splice(idx, 1);
+  if (prev) addItemToInventory(prev);
+  syncHotbar();
+  addLog(`Equipped trinket: ${it.name} (${slot.toUpperCase()})`, "loot");
+  playSound?.("menu");
+  draw();
+}
+function unequipTrinket(slotKey) {
+  normalizePlayerMeta();
+  const slot = String(slotKey || "");
+  if (slot !== "a" && slot !== "b") return;
+  const it = player?.trinkets?.[slot];
+  if (!it) return;
+  const cap = Math.max(0, Number(player.maxInventory ?? 10));
+  if (cap && (player.inventory?.length || 0) >= cap) {
+    addLog("Inventory full", "block");
+    return;
+  }
+  player.trinkets[slot] = null;
+  addItemToInventory(it);
+  addLog(`Unequipped trinket: ${it.name}`, "info");
+  playSound?.("menu");
+  draw();
+}
+window.equipTrinketToSlot = equipTrinketToSlot;
+window.unequipTrinket = unequipTrinket;
+
+function _todayKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${da}`;
+}
+
+function ensureBountyOffers() {
+  normalizePlayerMeta();
+  const day = _todayKey();
+  if (player.bounties.dayKey === day && player.bounties.offers?.length) return;
+  player.bounties.dayKey = day;
+  player.bounties.offers = [];
+  const mk = (o) => ({ id: `${day}_${o.kind}_${rand(1000, 9999)}`, ...o });
+  const offers = [
+    mk({ kind: "kill", target: "Rat", goal: 8, title: "Pest Control", desc: "Kill 8 Rats", rewardGold: 45, rewardMat: { matId: "iron", qty: 1 } }),
+    mk({ kind: "kill", target: "Goblin", goal: 6, title: "Green Menace", desc: "Kill 6 Goblins", rewardGold: 70, rewardMat: { matId: "leather", qty: 2 } }),
+    mk({ kind: "collectMat", target: "iron", goal: 4, title: "Ore Run", desc: "Collect 4 Iron Ore", rewardGold: 55, rewardMat: { matId: "essence", qty: 1 } }),
+    mk({ kind: "floor", target: "depth", goal: 5, title: "Deep Dive", desc: "Reach Floor 5", rewardGold: 90, rewardTrinketChance: 0.25 }),
+  ];
+  shuffleInPlace(offers);
+  player.bounties.offers = offers.slice(0, 3);
+}
+
+function acceptBounty(bountyId) {
+  normalizePlayerMeta();
+  ensureBountyOffers();
+  const id = String(bountyId || "");
+  if (!id) return;
+  if ((player.bounties.accepted || []).some((b) => b.id === id)) return;
+  const offer = (player.bounties.offers || []).find((b) => b.id === id);
+  if (!offer) return;
+  if ((player.bounties.accepted || []).length >= 2) {
+    addLog("You can only take 2 bounties at a time.", "block");
+    return;
+  }
+  player.bounties.accepted.push({ ...offer, progress: 0, completed: false });
+  addLog(`Bounty accepted: ${offer.title}`, "loot");
+  playSound?.("menu");
+  draw();
+}
+
+function _rewardBounty(b) {
+  const gold = Math.max(0, Number(b.rewardGold || 0));
+  if (gold) {
+    player.gold = Math.max(0, Number(player.gold || 0) + gold);
+    runStats.goldEarned = Math.max(0, Number(runStats.goldEarned || 0) + gold);
+  }
+  if (b.rewardMat?.matId) {
+    const base = (Array.isArray(MATERIALS) ? MATERIALS.find((m) => m.matId === b.rewardMat.matId) : null) || null;
+    if (base) addItemToInventory({ ...base, qty: Math.max(1, Math.floor(Number(b.rewardMat.qty || 1))) });
+  }
+  if (b.rewardTrinketChance && rollChance(Number(b.rewardTrinketChance))) {
+    const t = Array.isArray(TRINKETS) && TRINKETS.length ? TRINKETS[rand(0, TRINKETS.length - 1)] : null;
+    if (t) addItemToInventory({ ...t });
+  }
+}
+
+function claimBounty(bountyId) {
+  normalizePlayerMeta();
+  const id = String(bountyId || "");
+  const b = (player.bounties.accepted || []).find((x) => x.id === id);
+  if (!b) return;
+  if (!b.completed) {
+    addLog("Not completed yet.", "block");
+    return;
+  }
+  if (player.bounties.claimed?.[id]) return;
+  player.bounties.claimed[id] = true;
+  _rewardBounty(b);
+  addLog(`Bounty claimed: ${b.title}`, "loot");
+  playSound?.("loot");
+  vibrate([12, 30, 12]);
+  draw();
+}
+
+function bountyNotify(evt) {
+  normalizePlayerMeta();
+  const e = evt || {};
+  const type = String(e.type || "");
+  for (const b of player.bounties.accepted || []) {
+    if (b.completed) continue;
+    if (b.kind === "kill" && type === "kill" && String(e.enemy || "") === String(b.target || "")) {
+      b.progress = Math.min(b.goal, Number(b.progress || 0) + 1);
+    }
+    if (b.kind === "collectMat" && type === "collectMat" && String(e.matId || "") === String(b.target || "")) {
+      b.progress = Math.min(b.goal, Number(b.progress || 0) + Number(e.qty || 1));
+    }
+    if (b.kind === "floor" && type === "floor") {
+      b.progress = Math.max(Number(b.progress || 0), Number(e.floor || 0));
+    }
+    if (Number(b.progress || 0) >= Number(b.goal || 0)) b.completed = true;
+  }
+}
+window.ensureBountyOffers = ensureBountyOffers;
+window.acceptBounty = acceptBounty;
+window.claimBounty = claimBounty;
+window.bountyNotify = bountyNotify;
+
+function blacksmithUpgrade() {
+  normalizePlayerMeta();
+  const w = player?.hands?.main && String(player.hands.main.effect || "") === "weapon" ? player.hands.main : null;
+  if (!w) {
+    addLog("Equip a weapon in your main hand.", "block");
+    return;
+  }
+  const tier = Math.max(0, Math.floor(Number(w.forged || 0)));
+  const goldCost = 60 + tier * 45;
+  const ironCost = 2 + tier;
+  const essCost = tier >= 2 ? 1 : 0;
+  if (Number(player.gold || 0) < goldCost) {
+    addLog("Not enough gold.", "block");
+    return;
+  }
+  if (getMaterialCount("iron") < ironCost) {
+    addLog("Not enough Iron Ore.", "block");
+    return;
+  }
+  if (essCost && getMaterialCount("essence") < essCost) {
+    addLog("Not enough Arcane Dust.", "block");
+    return;
+  }
+  player.gold -= goldCost;
+  consumeMaterial("iron", ironCost);
+  if (essCost) consumeMaterial("essence", essCost);
+  w.maxDamage = Math.max(1, Math.floor(Number(w.maxDamage || 1) + 1));
+  w.forged = tier + 1;
+  addLog(`Blacksmith reforged your weapon (+1 max damage)`, "loot");
+  playSound?.("loot");
+  vibrate(15);
+  draw();
+}
+window.blacksmithUpgrade = blacksmithUpgrade;
 
 function renderLiveLog() {
   const logDiv = document.getElementById("liveLog");
@@ -593,6 +1211,43 @@ function updateHud() {
   }
   
   if (floorLabel) floorLabel.textContent = statusParts.join(" | ");
+  updateHotbarUi();
+}
+
+function updateHotbarUi() {
+  try {
+    const hb = document.getElementById("hotbar");
+    if (!hb) return;
+    if (inMainMenu) {
+      hb.innerHTML = "";
+      return;
+    }
+    syncHotbar();
+    const slots = Array.isArray(player.hotbar) ? player.hotbar : [null, null, null, null];
+    const rarityCss = (it) => {
+      const rid = String(it?.rarity || "");
+      const rar = (Array.isArray(RARITIES) ? RARITIES.find((r) => r.id === rid) : null) || null;
+      const c = rar?.outline;
+      return c ? `text-shadow: -1px 0 ${c}, 1px 0 ${c}, 0 -1px ${c}, 0 1px ${c}, 0 0 6px ${c};` : "";
+    };
+    const btnHtml = (s) => {
+      const iid = slots[s];
+      const idx = iid ? findInventoryIndexById(iid) : -1;
+      const it = idx >= 0 ? player.inventory?.[idx] : null;
+      const name = it?.name ? String(it.name) : "Empty";
+      const qty = it && String(it.effect || "").toLowerCase() === "material" ? ` x${Math.max(1, Math.floor(Number(it.qty || 1)))}` : "";
+      const label = it ? `${name}${qty}` : "Empty";
+      const title = it ? `${label} (tap to use)` : "Empty (assign in Inventory)";
+      const color = it?.color ? `color:${it.color};` : "";
+      const glow = it ? rarityCss(it) : "";
+      return `<button type="button" class="hotbar-btn ${it ? "" : "is-empty"}" data-hotbar-use="${s}" title="${escapeHtml(title)}" style="${color}${glow}">
+        <span class="hb-num">${s + 1}</span>${escapeHtml(label)}
+      </button>`;
+    };
+    hb.innerHTML = [0, 1, 2, 3].map(btnHtml).join("");
+  } catch {
+    // ignore
+  }
 }
 
 function tickHunger(cost = 0) {
@@ -609,6 +1264,11 @@ function tickHunger(cost = 0) {
   if (player.hunger <= 0) {
     // Starvation: small damage each turn while empty.
     player.hp -= 0.01;
+    try {
+      setLastDamageSource({ kind: "starvation", name: "Starvation", amount: 0.01, floor });
+    } catch {
+      // ignore
+    }
     const now = Date.now();
     if (now - (lastStarveLogAt || 0) > 1200) {
       lastStarveLogAt = now;
@@ -647,6 +1307,8 @@ function setMenuOpen(open) {
   if (!open) {
     cookingAtCampfire = false;
     atShop = false;
+    atBlacksmith = false;
+    atBountyBoard = false;
   }
 
   document.body.classList.toggle("menu-open", open);
@@ -667,10 +1329,81 @@ function openShopMenu() {
   draw();
 }
 
+function openBlacksmithMenu() {
+  atBlacksmith = true;
+  activeTab = "blacksmith";
+  setMenuOpen(true);
+  draw();
+}
+
+function openBountyBoardMenu() {
+  atBountyBoard = true;
+  activeTab = "bounties";
+  setMenuOpen(true);
+  draw();
+}
+
 function getItemSellValue(item) {
   if (!item) return 0;
-  if (String(item.effect || "") !== "valuable") return 0;
-  return Math.max(0, Math.floor(Number(item.value || 0)));
+  // Allow selling any item type at the shop.
+  // Note: Many items use `value` for gameplay effects (e.g. potions), so we avoid
+  // treating a generic `value` field as gold unless it's a "valuable".
+  if (Number.isFinite(Number(item.sellValue))) return Math.max(0, Math.floor(Number(item.sellValue)));
+
+  const effect = String(item.effect || "").toLowerCase();
+
+  const rarityMult = (() => {
+    try {
+      if (typeof getRarity === "function") {
+        const rar = getRarity(item.rarity);
+        const m = Number(rar?.mult || 1);
+        return Number.isFinite(m) ? Math.max(0.1, m) : 1;
+      }
+    } catch {
+      // ignore
+    }
+    return 1;
+  })();
+
+  if (effect === "valuable") {
+    // Valuables are authored with baseValue; generated valuables should also have a computed `value`.
+    const explicit = Number(item.value);
+    if (Number.isFinite(explicit)) return Math.max(0, Math.floor(explicit));
+
+    const base = Number(item.baseValue || 0);
+    if (Number.isFinite(base) && base > 0) {
+      if (typeof calcValuableValue === "function") return Math.max(1, Math.floor(calcValuableValue(base, item.rarity)));
+      return Math.max(1, Math.floor(base * rarityMult));
+    }
+    return 0;
+  }
+
+  if (effect === "weapon") {
+    const lvl = Math.max(1, Math.floor(Number(item.level || 1)));
+    const maxDmg = Math.max(1, Math.floor(Number(item.maxDamage || 1)));
+    // Keep weapon resale below "upgrade" prices and scale reasonably with level/rarity.
+    const base = 20 + lvl * 14 + maxDmg * 10;
+    const mult = 0.45 + Math.min(0.7, rarityMult * 0.1); // common ~0.55, legendary ~1.15
+    return Math.max(5, Math.floor(base * mult));
+  }
+
+  if (effect === "food") {
+    const hunger = Math.max(0, Number(item.hunger || 0));
+    const heal = Math.max(0, Number(item.heal || 0));
+    const cookedBonus = item.cooked ? 6 : 0;
+    return Math.max(1, Math.floor(5 + hunger * 4 + heal * 8 + cookedBonus));
+  }
+
+  // Potions / consumables (resale is intentionally worse than buying).
+  if (effect === "fullheal") return 12;
+  if (effect === "damageboost") return 20;
+  if (effect === "toughnessboost") return 27;
+  if (effect === "speed") return 35;
+  if (effect === "invisibility") return 45;
+  if (effect === "explosive") return 55;
+
+  // Fallback for future item types: allow selling for a small amount.
+  return effect ? 5 : 0;
 }
 
 function sellInventoryItem(invIndex) {
@@ -686,6 +1419,12 @@ function sellInventoryItem(invIndex) {
   }
   player.gold = Math.max(0, Number(player.gold || 0) + v);
   player.inventory.splice(idx, 1);
+  try {
+    runStats.goldEarned = Math.max(0, Number(runStats.goldEarned || 0) + v);
+  } catch {
+    // ignore
+  }
+  syncHotbar();
   addLog(`Sold ${it.name} (+${v} gold)`, "loot");
   playSound?.("loot");
   vibrate(10);
@@ -702,12 +1441,18 @@ function sellAllValuables() {
     else kept.push(it);
   }
   if (gained <= 0) {
-    addLog("No valuables to sell.", "info");
+    addLog("No items to sell.", "info");
     return;
   }
   player.inventory = kept;
   player.gold = Math.max(0, Number(player.gold || 0) + gained);
-  addLog(`Sold valuables (+${gained} gold)`, "loot");
+  try {
+    runStats.goldEarned = Math.max(0, Number(runStats.goldEarned || 0) + gained);
+  } catch {
+    // ignore
+  }
+  syncHotbar();
+  addLog(`Sold items (+${gained} gold)`, "loot");
   playSound?.("loot");
   vibrate([12, 30, 12]);
   draw();
@@ -780,7 +1525,8 @@ function equipToHand(hand, invIndex) {
   // Remove from inventory
   player.inventory.splice(idx, 1);
   // Put previous back in inventory if it existed
-  if (prev) player.inventory.push(prev);
+  if (prev) addItemToInventory(prev);
+  syncHotbar();
 
   addLog(`Equipped: ${it.name} (${h} hand)`, "loot");
   playSound?.("menu");
@@ -801,7 +1547,7 @@ function unequipHand(hand) {
   }
 
   player.hands[h] = null;
-  player.inventory.push(it);
+  addItemToInventory(it);
   addLog(`Unequipped: ${it.name}`, "info");
   playSound?.("menu");
   draw();
@@ -835,7 +1581,12 @@ function buyShopItem(shopIndex) {
   player.gold -= price;
   // Store the base item (no price/shopIndex fields).
   const { price: _p, shopIndex: _s, ...baseItem } = item;
-  player.inventory.push(baseItem);
+  if (!addItemToInventory(baseItem)) {
+    // Refund if inventory became full due to some edge-case.
+    player.gold += price;
+    addLog("Inventory full", "block");
+    return;
+  }
   addLog(`Bought ${baseItem.name}`, "loot");
   vibrate(12);
   draw();
@@ -849,8 +1600,8 @@ function getFloorRewardChoices() {
     { id: "tough", label: "+1 Toughness", desc: "Take less damage", apply: () => { player.toughness += 1; } },
     { id: "maxHunger", label: "+1 Max Hunger", desc: "More sustain", apply: () => { player.maxHunger += 1; player.hunger = Math.min(player.maxHunger, player.hunger + 1); } },
     { id: "rations", label: "+3 Hunger", desc: "Immediate food", apply: () => { player.hunger = Math.min(player.maxHunger, player.hunger + 3); } },
-    { id: "potion", label: "Random Potion", desc: "Add to inventory", apply: () => { player.inventory.push(POTIONS[rand(0, POTIONS.length - 1)]); } },
-    { id: "healPotion", label: "Health Potion", desc: "Add to inventory", apply: () => { player.inventory.push(healthPotion); } },
+    { id: "potion", label: "Random Potion", desc: "Add to inventory", apply: () => { addItemToInventory(POTIONS[rand(0, POTIONS.length - 1)]); } },
+    { id: "healPotion", label: "Health Potion", desc: "Add to inventory", apply: () => { addItemToInventory(healthPotion); } },
   ];
 
   const shuffled = shuffleInPlace(pool.slice());
@@ -1016,7 +1767,7 @@ function showEnterDungeonPrompt() {
 function showExitToCourtyardPrompt() {
   showPromptOverlay(
     "Exit to courtyard?",
-    `<div style="opacity:0.9; text-align:center;">Leaving ends this dive. Bring valuables to the courtyard shop to sell for gold.</div>`,
+    `<div style="opacity:0.9; text-align:center;">Leaving ends this dive. Bring loot to the courtyard shop to sell for gold.</div>`,
     [
       {
         id: "exitToCourtyardBtn",
@@ -1025,8 +1776,18 @@ function showExitToCourtyardPrompt() {
           const transitionEl = document.getElementById("floorTransition");
           if (transitionEl) transitionEl.style.display = "none";
           gamePaused = false;
+          try {
+            runStats.endedAt = Date.now();
+            runStats.floorsReached = Math.max(Number(runStats.floorsReached || 0), Number(floor || 0));
+          } catch {
+            // ignore
+          }
           floor = 0;
           generateFloor();
+          // Show run summary after arriving in the courtyard.
+          setTimeout(() => {
+            showRunSummaryOverlay?.();
+          }, 30);
         },
       },
       {
@@ -1043,6 +1804,46 @@ function showExitToCourtyardPrompt() {
     ],
   );
 }
+
+function showRunSummaryOverlay() {
+  try {
+    const durSec =
+      runStats?.startedAt ? Math.max(0, Math.floor((Date.now() - Number(runStats.startedAt || 0)) / 1000)) : 0;
+    const timeLine = durSec ? `${Math.floor(durSec / 60)}m ${durSec % 60}s` : "—";
+    const best = runStats.bestWeaponName ? escapeHtml(runStats.bestWeaponName) : "(none)";
+    const bDone = (player?.bounties?.accepted || []).filter((b) => b.completed).length;
+    showPromptOverlay(
+      "Run Summary",
+      `<div style="text-align:center; opacity:0.92;">
+        Floors reached: ${Number(runStats.floorsReached || 0)}<br>
+        Time: ${escapeHtml(timeLine)}<br><br>
+        Kills: ${Number(runStats.enemiesKilled || 0)}<br>
+        Items found: ${Number(runStats.itemsFound || 0)}<br>
+        Damage dealt: ${Number(runStats.damageDealt || 0)}<br>
+        Damage taken: ${Number(runStats.damageTaken || 0)}<br>
+        Props destroyed: ${Number(runStats.propsDestroyed || 0)}<br>
+        Gold earned: ${Number(runStats.goldEarned || 0)}<br>
+        Best weapon: ${best}<br>
+        Bounties completed: ${bDone}
+      </div>`,
+      [
+        {
+          id: "summaryOkBtn",
+          label: "Continue",
+          onClick: () => {
+            const transitionEl = document.getElementById("floorTransition");
+            if (transitionEl) transitionEl.style.display = "none";
+            gamePaused = false;
+            draw();
+          },
+        },
+      ],
+    );
+  } catch {
+    // ignore
+  }
+}
+window.showRunSummaryOverlay = showRunSummaryOverlay;
 
 function getAllSaves() {
   try {
@@ -1345,6 +2146,11 @@ function startGame(options = {}) {
 
   // Reset player stats for new game (but do not reset when loading a save)
   if (!gameStarted && !fromLoad) {
+    try {
+      resetRunStats?.();
+    } catch {
+      // ignore
+    }
     seedRng(createSeed());
     player = {
       x: 0,
@@ -1372,6 +2178,12 @@ function startGame(options = {}) {
 
   // Mark game as started even if we came from a load.
   if (!gameStarted) gameStarted = true;
+  try {
+    normalizePlayerMeta?.();
+    syncHotbar?.();
+  } catch {
+    // ignore
+  }
   
   inMainMenu = false;
   const mainMenuEl = document.getElementById("mainMenu");
@@ -1662,6 +2474,9 @@ function getInvestigationInfoAt(tx, ty) {
   if (enemy) return { kind: "enemy", enemy };
 
   if (mouse && tx === mouse.x && ty === mouse.y) return { kind: "mouse" };
+  
+  const prop = propAtKey?.(key);
+  if (prop) return { kind: "prop", prop };
 
   // Hidden area tiles render as walls until revealed.
   if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
@@ -1675,6 +2490,8 @@ function getInvestigationInfoAt(tx, ty) {
     if (effect === "food") return { kind: "food", food: loot };
     if (effect === "valuable") return { kind: "valuable", valuable: loot };
     if (effect === "weapon") return { kind: "weapon", weapon: loot };
+    if (effect === "material") return { kind: "material", material: loot };
+    if (effect === "trinket") return { kind: "trinket", trinket: loot };
     return { kind: "potion", potion: loot };
   }
 
@@ -1692,6 +2509,8 @@ function getInvestigationInfoAt(tx, ty) {
 
   if (ch === TILE.CAMPFIRE) return { kind: "campfire" };
   if (ch === TILE.SHOP) return { kind: "shop" };
+  if (ch === TILE.BLACKSMITH) return { kind: "blacksmith" };
+  if (ch === TILE.BOUNTY) return { kind: "bounty" };
   if (ch === TILE.WALL) return { kind: "wall" };
   return { kind: "floor" };
 }
@@ -1761,7 +2580,7 @@ function isPlayerWalkable(x, y) {
   if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k) && !hiddenArea.falseWalls?.has(k)) return false;
 
   const tile = tileAtKey(k);
-  if (tile === TILE.WALL) return false;
+  if (!isWalkableTile(tile)) return false;
   if (enemies.some((e) => e.x === x && e.y === y)) return false;
   return true;
 }

@@ -100,6 +100,57 @@ const COOKED_RAT_MEAT = {
 const MUSHROOM = { name: "Mushroom", effect: "food", hunger: 1, heal: 1, symbol: "f", color: "#cc88cc", cooked: false };
 const BERRY = { name: "Berry", effect: "food", hunger: 1, heal: 0, symbol: "y", color: "#ff4477", cooked: false };
 
+// Materials (stack in inventory)
+const MATERIALS = [
+  { name: "Iron Ore", effect: "material", matId: "iron", qty: 1, symbol: "m", color: "#b0bec5" },
+  { name: "Leather Strip", effect: "material", matId: "leather", qty: 1, symbol: "m", color: "#c49a6c" },
+  { name: "Arcane Dust", effect: "material", matId: "essence", qty: 1, symbol: "m", color: "#c77dff" },
+];
+
+// Trinkets (equip 2; passive bonuses live on the item)
+const TRINKETS = [
+  {
+    name: "Lucky Charm",
+    effect: "trinket",
+    trinketId: "lucky_charm",
+    rarity: "uncommon",
+    symbol: "t",
+    color: "#00ffff",
+    desc: "+10% loot chance",
+    bonuses: { lootMult: 0.1 },
+  },
+  {
+    name: "Sturdy Band",
+    effect: "trinket",
+    trinketId: "sturdy_band",
+    rarity: "uncommon",
+    symbol: "t",
+    color: "#cfd8dc",
+    desc: "+1 toughness",
+    bonuses: { toughness: 1 },
+  },
+  {
+    name: "Sharpened Sigil",
+    effect: "trinket",
+    trinketId: "sharpened_sigil",
+    rarity: "rare",
+    symbol: "t",
+    color: "#ffeb3b",
+    desc: "+5% crit chance",
+    bonuses: { critChance: 0.05 },
+  },
+  {
+    name: "Bloodstone",
+    effect: "trinket",
+    trinketId: "bloodstone",
+    rarity: "rare",
+    symbol: "t",
+    color: "#ff3366",
+    desc: "Heal 0.25 on kill",
+    bonuses: { lifeOnKill: 0.25 },
+  },
+];
+
 // Brighter colors for readability
 const RAT = { hp: 3, dmg: 1, color: "#bdbdbd", sight: 4, symbol: "r", name: "Rat" };
 const GOBLIN = { hp: 6, dmg: 3, color: "#00ff3a", sight: 5, symbol: "g", name: "Goblin" };

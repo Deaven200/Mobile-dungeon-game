@@ -73,6 +73,39 @@ function renderMenuHtml() {
     // Cheap outline with multiple shadows.
     return `text-shadow: -1px 0 ${c}, 1px 0 ${c}, 0 -1px ${c}, 0 1px ${c}, 0 0 6px ${c};`;
   };
+  const rarityBadge = (it) => {
+    const rid = String(it?.rarity || "");
+    if (!rid) return "";
+    if (rid === "trash") return "·";
+    if (rid === "common") return "◇";
+    if (rid === "uncommon") return "◆";
+    if (rid === "rare") return "✦";
+    if (rid === "epic") return "✷";
+    if (rid === "legendary") return "★";
+    return "◇";
+  };
+  const itemTitle = (it) => {
+    if (!it) return "";
+    const eff = String(it.effect || "").toLowerCase();
+    const lines = [];
+    const rid = String(it.rarity || "");
+    if (rid) lines.push(`Rarity: ${rid}`);
+    if (eff === "weapon") {
+      lines.push(`Level: ${Number(it.level || 1)}`);
+      lines.push(`Damage: 0-${Number(it.maxDamage || 0)}`);
+    } else if (eff === "food") {
+      lines.push(`Hunger +${Number(it.hunger || 0)}`);
+      if (Number(it.heal || 0)) lines.push(`Heal +${Number(it.heal || 0)}`);
+      if (it.cooked) lines.push("Cooked");
+    } else if (eff === "valuable") {
+      lines.push(`Worth ${Number(it.value || 0)} gold`);
+    } else if (eff) {
+      lines.push(`Type: ${eff}`);
+    }
+    const sv = typeof getItemSellValue === "function" ? Math.max(0, Math.floor(Number(getItemSellValue(it) || 0))) : 0;
+    if (sv) lines.push(`Sell: ${sv} gold`);
+    return lines.join("\n");
+  };
 
   const tabBtn = (tab, label) =>
     `<button type="button" data-tab="${tab}" class="${activeTab === tab ? "is-active" : ""}">${label}</button>`;
@@ -83,17 +116,60 @@ function renderMenuHtml() {
   if (activeTab === "inventory") {
     const cap = Math.max(0, Number(player.maxInventory ?? 0));
     const used = Array.isArray(player.inventory) ? player.inventory.length : 0;
-    const items = (Array.isArray(player.inventory) ? player.inventory : []).map((it, idx) => ({ it, idx }));
+    let items = (Array.isArray(player.inventory) ? player.inventory : []).map((it, idx) => ({ it, idx }));
+    const sortMode = String(player.inventorySort || "type").toLowerCase();
+    const rarityRank = (rid) => {
+      const order = { trash: 0, common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 };
+      return order[String(rid || "").toLowerCase()] ?? 0;
+    };
+    const stable = (cmp) => {
+      items = items
+        .map((x, i) => ({ ...x, _i: i }))
+        .sort((a, b) => {
+          const c = cmp(a, b);
+          return c || a._i - b._i;
+        })
+        .map(({ _i, ...rest }) => rest);
+    };
+    if (sortMode === "name") {
+      stable((a, b) => String(a.it?.name || "").localeCompare(String(b.it?.name || "")));
+    } else if (sortMode === "value") {
+      stable((a, b) => {
+        const av = typeof getItemSellValue === "function" ? Number(getItemSellValue(a.it) || 0) : 0;
+        const bv = typeof getItemSellValue === "function" ? Number(getItemSellValue(b.it) || 0) : 0;
+        return bv - av;
+      });
+    } else if (sortMode === "rarity") {
+      stable((a, b) => rarityRank(b.it?.rarity) - rarityRank(a.it?.rarity));
+    } else if (sortMode === "recent") {
+      stable((a, b) => Number(b.it?.pickedAt || 0) - Number(a.it?.pickedAt || 0));
+    } else {
+      // type (default): weapons, consumables, valuables, materials, then name
+      const typeRank = (it) => {
+        const eff = String(it?.effect || "").toLowerCase();
+        if (eff === "weapon") return 0;
+        if (eff === "trinket") return 1;
+        if (eff === "food" || eff === "fullheal" || eff === "damageboost" || eff === "toughnessboost" || eff === "speed" || eff === "invisibility" || eff === "explosive")
+          return 2;
+        if (eff === "valuable") return 3;
+        if (eff === "material") return 4;
+        return 5;
+      };
+      stable((a, b) => typeRank(a.it) - typeRank(b.it) || String(a.it?.name || "").localeCompare(String(b.it?.name || "")));
+    }
+
     const valuables = items.filter(({ it }) => String(it?.effect || "") === "valuable");
     const weapons = items.filter(({ it }) => String(it?.effect || "") === "weapon");
+    const trinkets = items.filter(({ it }) => String(it?.effect || "") === "trinket");
+    const materials = items.filter(({ it }) => String(it?.effect || "") === "material");
     const consumables = items.filter(({ it }) => {
       const eff = String(it?.effect || "");
-      return eff !== "valuable" && eff !== "weapon";
+      return eff !== "valuable" && eff !== "weapon" && eff !== "trinket" && eff !== "material";
     });
 
     const btn = (it, idx, subtitle = "") =>
-      `<button type="button" data-use-item="${idx}" class="menu-button" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}" title="${escapeHtml(it?.name || "")}">
-        ${escapeHtml(it?.name || "Item")}${subtitle ? `<br><small style="opacity:0.75;">${escapeHtml(subtitle)}</small>` : ""}
+      `<button type="button" data-use-item="${idx}" class="menu-button" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}" title="${escapeHtml(itemTitle(it))}">
+        ${escapeHtml(`${rarityBadge(it)} ${it?.name || "Item"}`)}${subtitle ? `<br><small style="opacity:0.75;">${escapeHtml(subtitle)}</small>` : ""}
       </button>`;
 
     if (!used) {
@@ -109,32 +185,113 @@ function renderMenuHtml() {
         )}</span> <button type="button" data-unequip-hand="${escapeHtml(handKey)}" style="margin-left:8px;">Unequip</button></div>`;
       };
 
-      const top = `<div class="menu-status" style="margin-bottom: 10px;">Inventory: ${used}/${cap || "∞"}</div>`;
+      const sortBtn = (id, label) =>
+        `<button type="button" data-sort-inv="${escapeHtml(id)}" style="margin: 2px 4px; padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(0,255,255,0.35); background:${sortMode === id ? "rgba(0,255,255,0.12)" : "rgba(0,0,0,0.55)"}; color: var(--accent);">
+          ${escapeHtml(label)}
+        </button>`;
+      const sortRow = `<div style="text-align:center; margin: 6px 0 10px;">
+        <div style="opacity:0.85; margin-bottom: 4px;">Sort</div>
+        ${sortBtn("type", "Type")}${sortBtn("recent", "Recent")}${sortBtn("name", "Name")}${sortBtn("rarity", "Rarity")}${sortBtn("value", "Value")}
+      </div>`;
+
+      const hotbarRow = (() => {
+        const slots = Array.isArray(player.hotbar) ? player.hotbar : [null, null, null, null];
+        const slotBtn = (s) => {
+          const iid = slots[s];
+          const idx2 = typeof findInventoryIndexById === "function" && iid ? findInventoryIndexById(iid) : -1;
+          const it2 = idx2 >= 0 ? player.inventory?.[idx2] : null;
+          const nm = it2?.name ? String(it2.name) : "(empty)";
+          return `<button type="button" class="mini-btn" data-clear-hotbar="${s}" title="Tap to clear">
+            ${s + 1}: ${escapeHtml(nm)}
+          </button>`;
+        };
+        return `<div style="text-align:center; margin: 6px 0 10px;">
+          <div style="opacity:0.85; margin-bottom: 4px;">Hotbar (tap a slot to clear)</div>
+          <div class="mini-row">${[0, 1, 2, 3].map(slotBtn).join("")}</div>
+          <div style="opacity:0.7; margin-top:4px; font-size:0.9em;">Assign from items below</div>
+        </div>`;
+      })();
+
+      const top = `<div class="menu-status" style="margin-bottom: 10px;">Inventory: ${used}/${cap || "∞"}</div>${sortRow}${hotbarRow}`;
 
       const equipTop = `<div class="menu-status" style="margin-bottom: 10px; text-align:left;">
         <div style="font-weight:700; color: var(--accent); margin-bottom: 6px;">Hands</div>
         ${eqLine("Main hand", mainHand, "main")}
         ${eqLine("Off hand", offHand, "off")}
+        <div style="font-weight:700; color: var(--accent); margin: 10px 0 6px;">Trinkets</div>
+        ${(() => {
+          const tr = player?.trinkets || { a: null, b: null };
+          const line = (label, it, slot) => {
+            if (!it) return `<div>${escapeHtml(label)}: <span style="opacity:0.7;">(empty)</span></div>`;
+            return `<div>${escapeHtml(label)}: <span style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}">${escapeHtml(
+              `${rarityBadge(it)} ${it?.name || "Trinket"}`,
+            )}</span> <button type="button" data-unequip-trinket="${escapeHtml(slot)}" style="margin-left:8px;">Unequip</button></div>`;
+          };
+          return `${line("Slot A", tr.a, "a")}${line("Slot B", tr.b, "b")}`;
+        })()}
       </div>`;
 
       const consHtml = consumables.length
         ? `<div class="menu-status" style="margin: 6px 0 4px; opacity:0.9;">Consumables</div><div class="menu-inventory">${consumables
-            .map(({ it, idx }) => btn(it, idx))
+            .map(({ it, idx }) => {
+              const assign = `<div class="mini-row">
+                ${[0, 1, 2, 3].map((s) => `<button type="button" class="mini-btn" data-assign-hotbar="${s}:${idx}">${s + 1}</button>`).join("")}
+              </div>`;
+              return `<div style="display:flex; flex-direction:column; align-items:center;">${btn(it, idx)}${assign}</div>`;
+            })
             .join("")}</div>`
         : `<div class="menu-empty">No consumables</div>`;
 
       const wepHtml = weapons.length
         ? `<div class="menu-status" style="margin: 10px 0 4px; opacity:0.9;">Weapons (tap to equip)</div><div class="menu-inventory">${weapons
             .map(({ it, idx }) => {
-              const subtitle = `Lv ${Number(it?.level || 1)} • ${String(it?.rarity || "trash")} • 0-${Number(it?.maxDamage || 0)}`;
+              const main = player?.hands?.main && String(player.hands.main.effect || "") === "weapon" ? player.hands.main : null;
+              const bonus = Math.max(0, Math.floor(Number(player.dmg || 0)));
+              const wMax = Math.max(1, Math.floor(Number(it?.maxDamage || 1))) + bonus;
+              const mMax = main ? Math.max(1, Math.floor(Number(main.maxDamage || 1))) + bonus : null;
+              const delta = mMax != null ? wMax - mMax : null;
+              const deltaStr = delta == null ? "" : ` • Δ ${delta >= 0 ? "+" : ""}${delta}`;
+              const subtitle = `Lv ${Number(it?.level || 1)} • ${String(it?.rarity || "trash")} • 0-${wMax}${deltaStr}`;
               return `<button type="button" data-equip-main="${idx}" class="menu-button" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}" title="${escapeHtml(
-                it?.name || "",
+                itemTitle(it),
               )}">
-                ${escapeHtml(it?.name || "Weapon")}<br><small style="opacity:0.75;">${escapeHtml(subtitle)}</small><br><small style="opacity:0.7;">Equip main</small>
+                ${escapeHtml(`${rarityBadge(it)} ${it?.name || "Weapon"}`)}<br><small style="opacity:0.75;">${escapeHtml(subtitle)}</small><br><small style="opacity:0.7;">Equip main</small>
               </button>`;
             })
             .join("")}</div>`
         : `<div class="menu-empty">No weapons</div>`;
+
+      const trinkHtml = trinkets.length
+        ? `<div class="menu-status" style="margin: 10px 0 4px; opacity:0.9;">Trinkets</div><div class="menu-inventory">${trinkets
+            .map(({ it, idx }) => {
+              const subtitle = String(it?.desc || it?.description || "");
+              const base = `<button type="button" data-use-item="${idx}" class="menu-button" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}" title="${escapeHtml(
+                itemTitle(it),
+              )}">
+                ${escapeHtml(`${rarityBadge(it)} ${it?.name || "Trinket"}`)}${subtitle ? `<br><small style="opacity:0.75;">${escapeHtml(subtitle)}</small>` : ""}
+              </button>`;
+              const equip =
+                `<div style="display:flex; gap:6px; justify-content:center; margin-top:4px;">
+                  <button type="button" data-equip-trinket-a="${idx}" style="padding:4px 10px; border-radius:10px;">Equip A</button>
+                  <button type="button" data-equip-trinket-b="${idx}" style="padding:4px 10px; border-radius:10px;">Equip B</button>
+                </div>`;
+              return `<div style="display:flex; flex-direction:column; align-items:center;">${base}${equip}</div>`;
+            })
+            .join("")}</div>`
+        : `<div class="menu-empty">No trinkets</div>`;
+
+      const matHtml = materials.length
+        ? `<div class="menu-status" style="margin: 10px 0 4px; opacity:0.9;">Materials</div><div class="menu-inventory">${materials
+            .map(({ it, idx }) => {
+              const q = Math.max(1, Math.floor(Number(it?.qty || 1)));
+              return `<button type="button" data-use-item="${idx}" class="menu-button" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}" title="${escapeHtml(
+                itemTitle(it),
+              )}">
+                ${escapeHtml(`${it?.name || "Material"} x${q}`)}
+              </button>`;
+            })
+            .join("")}</div>`
+        : `<div class="menu-empty">No materials</div>`;
 
       const valHtml = valuables.length
         ? `<div class="menu-status" style="margin: 10px 0 4px; opacity:0.9;">Valuables (sell at a shop)</div><div class="menu-inventory">${valuables
@@ -142,7 +299,7 @@ function renderMenuHtml() {
             .join("")}</div>`
         : `<div class="menu-empty">No valuables</div>`;
 
-      content = `${top}${equipTop}${wepHtml}${consHtml}${valHtml}`;
+      content = `${top}${equipTop}${wepHtml}${trinkHtml}${consHtml}${matHtml}${valHtml}`;
     }
   } else if (activeTab === "status") {
     const burning = getBurning(player);
@@ -207,24 +364,28 @@ function renderMenuHtml() {
     const gold = Number(player.gold || 0);
     const gear = player.gear || { weapon: 0, armor: 0, pack: 0 };
 
-    const valuables = (player.inventory || [])
+    const sellables = (player.inventory || [])
       .map((it, idx) => ({ it, idx }))
-      .filter(({ it }) => String(it?.effect || "") === "valuable")
-      .map(({ it, idx }) => ({ it, idx, sell: Math.max(0, Math.floor(Number(it?.value || 0))) }));
+      .map(({ it, idx }) => ({
+        it,
+        idx,
+        sell: typeof getItemSellValue === "function" ? Math.max(0, Math.floor(Number(getItemSellValue(it) || 0))) : 0,
+      }));
 
     const sellAllBtn =
-      valuables.length > 0
-        ? `<button type="button" data-sell-all="1" class="menu-button" style="color:#ffd700;">Sell All<br><small>+${valuables.reduce(
+      sellables.some((v) => v.sell > 0)
+        ? `<button type="button" data-sell-all="1" class="menu-button" style="color:#ffd700;">Sell All<br><small>+${sellables.reduce(
             (a, v) => a + v.sell,
             0,
           )} gold</small></button>`
         : "";
 
-    const sellButtons = valuables
+    const sellButtons = sellables
+      .filter((v) => v.sell > 0)
       .map(
         ({ it, idx, sell }) =>
           `<button type="button" data-sell-item="${idx}" class="menu-button" style="color:${it?.color || "#ffd700"};${rarityOutlineCss(it)}${sell <= 0 ? "opacity:0.5;" : ""}">
-            ${escapeHtml(it?.name || "Valuable")}<br><small>+${sell} gold</small>
+            ${escapeHtml(it?.name || "Item")}<br><small>+${sell} gold</small>
           </button>`,
       )
       .join("");
@@ -269,12 +430,107 @@ function renderMenuHtml() {
 
     content = `<div class="menu-status">
       <div>Gold: ${gold}</div>
-      <div style="margin-top: 10px; opacity:0.9;">Sell valuables:</div>
-      <div class="menu-inventory">${sellAllBtn}${sellButtons || `<div class="menu-empty">No valuables</div>`}</div>
+      <div style="margin-top: 10px; opacity:0.9;">Sell items:</div>
+      <div class="menu-inventory">${sellAllBtn}${sellButtons || `<div class="menu-empty">No items to sell</div>`}</div>
       <div style="margin-top: 10px; opacity:0.9;">Upgrades:</div>
       <div class="menu-inventory">${upgradesHtml}</div>
       <div style="margin-top: 10px; opacity:0.9;">Consumables:</div>
       <div class="menu-inventory">${potionButtons}</div>
+    </div>`;
+  } else if (activeTab === "blacksmith") {
+    const w = player?.hands?.main && String(player.hands.main.effect || "") === "weapon" ? player.hands.main : null;
+    const tier = w ? Math.max(0, Math.floor(Number(w.forged || 0))) : 0;
+    const goldCost = 60 + tier * 45;
+    const ironCost = 2 + tier;
+    const essCost = tier >= 2 ? 1 : 0;
+    const ironHave = typeof getMaterialCount === "function" ? getMaterialCount("iron") : 0;
+    const essHave = typeof getMaterialCount === "function" ? getMaterialCount("essence") : 0;
+    const gold = Number(player.gold || 0);
+    const can = !!w && gold >= goldCost && ironHave >= ironCost && (!essCost || essHave >= essCost);
+    content = `<div class="menu-status" style="text-align:left;">
+      <div style="color: var(--accent); font-weight:700;">Blacksmith</div>
+      <div style="opacity:0.9; margin-top: 6px;">Main-hand weapon:</div>
+      <div style="margin: 6px 0; padding: 10px; background: rgba(0,0,0,0.35); border-radius: 8px;">
+        ${w ? `${escapeHtml(w.name)}<br><span style="opacity:0.8;">Damage 0-${Number(w.maxDamage || 0)} • Forge Tier ${tier}</span>` : `<span style="opacity:0.8;">(none equipped)</span>`}
+      </div>
+      <div style="opacity:0.9;">Reforge (+1 max damage)</div>
+      <div style="opacity:0.8; margin-bottom: 6px;">Cost: ${goldCost} gold • Iron ${ironCost}${essCost ? ` • Dust ${essCost}` : ""}</div>
+      <button type="button" data-blacksmith-upgrade="1" style="width: 100%; padding: 12px 14px; border-radius: 12px; border: 2px solid rgba(0,255,255,0.35); background: rgba(0,0,0,0.75); color: var(--accent); ${can ? "" : "opacity:0.5;"}">Reforge</button>
+      <div style="opacity:0.75; margin-top: 10px;">Materials: Iron ${ironHave} • Dust ${essHave}</div>
+    </div>`;
+  } else if (activeTab === "bounties") {
+    try {
+      ensureBountyOffers?.();
+    } catch {
+      // ignore
+    }
+    const offers = player?.bounties?.offers || [];
+    const accepted = player?.bounties?.accepted || [];
+    const claimed = player?.bounties?.claimed || {};
+    const offerHtml =
+      offers.length === 0
+        ? `<div class="menu-empty">No bounties today</div>`
+        : offers
+            .map((b) => {
+              const already = accepted.some((x) => x.id === b.id);
+              const btn = already
+                ? `<div style="opacity:0.7; text-align:center;">Accepted</div>`
+                : `<button type="button" data-bounty-accept="${escapeHtml(b.id)}" style="margin-top:6px;">Accept</button>`;
+              return `<div style="margin: 10px 0; padding: 10px; border: 1px solid rgba(0,255,255,0.25); border-radius: 10px; background: rgba(0,0,0,0.35);">
+                <div style="color: var(--accent); font-weight:700;">${escapeHtml(b.title)}</div>
+                <div style="opacity:0.9;">${escapeHtml(b.desc)}</div>
+                <div style="opacity:0.8; margin-top:4px;">Reward: ${Number(b.rewardGold || 0)}g</div>
+                ${btn}
+              </div>`;
+            })
+            .join("");
+    const activeHtml =
+      accepted.length === 0
+        ? `<div class="menu-empty">No active bounties</div>`
+        : accepted
+            .map((b) => {
+              const done = !!b.completed;
+              const isClaimed = !!claimed?.[b.id];
+              const claimBtn =
+                done && !isClaimed
+                  ? `<button type="button" data-bounty-claim="${escapeHtml(b.id)}" style="margin-top:6px;">Claim</button>`
+                  : `<div style="opacity:0.8; margin-top:6px;">${isClaimed ? "Claimed" : done ? "Complete" : "In progress"}</div>`;
+              return `<div style="margin: 10px 0; padding: 10px; border: 1px solid rgba(255,255,255,0.22); border-radius: 10px; background: rgba(0,0,0,0.25);">
+                <div style="font-weight:700;">${escapeHtml(b.title)}</div>
+                <div style="opacity:0.85;">${escapeHtml(b.desc)}</div>
+                <div style="opacity:0.85; margin-top:4px;">Progress: ${Number(b.progress || 0)}/${Number(b.goal || 0)}</div>
+                ${claimBtn}
+              </div>`;
+            })
+            .join("");
+    content = `<div class="menu-log" style="text-align:left;">
+      <div class="log-line" style="color: var(--accent); font-weight: bold;">Bounty Board</div>
+      <div class="log-line" style="opacity:0.85;">Pick up to 2 bounties. Claim rewards here.</div>
+      <div style="margin-top: 10px; color: var(--accent); font-weight:700;">Active</div>
+      ${activeHtml}
+      <div style="margin-top: 14px; color: var(--accent); font-weight:700;">Available</div>
+      ${offerHtml}
+    </div>`;
+  } else if (activeTab === "codex") {
+    const c = player?.codex || { enemies: {}, items: {}, trinkets: {}, materials: {}, statuses: {} };
+    const section = (title, obj) => {
+      const entries = Object.entries(obj || {}).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+      if (!entries.length) return `<div class="menu-empty">No ${escapeHtml(title.toLowerCase())} yet</div>`;
+      return `<div style="text-align:left; max-width: 680px; margin: 0 auto;">
+        <div style="color: var(--accent); font-weight:700; margin: 8px 0 6px;">${escapeHtml(title)}</div>
+        ${entries
+          .map(([k, v]) => `<div class="log-line" style="opacity:0.95;">${escapeHtml(k)} <span style="opacity:0.7;">(${Number(v || 0)})</span></div>`)
+          .join("")}
+      </div>`;
+    };
+    content = `<div class="menu-log" style="text-align:left;">
+      <div class="log-line" style="color: var(--accent); font-weight: bold;">Codex</div>
+      <div class="log-line" style="opacity:0.85;">Counts track pickups/entries (some are “seen” only).</div>
+      ${section("Enemies", c.enemies)}
+      ${section("Items", c.items)}
+      ${section("Trinkets", c.trinkets)}
+      ${section("Materials", c.materials)}
+      ${section("Status Effects", c.statuses)}
     </div>`;
   } else if (activeTab === "help") {
     content = `<div class="menu-log" style="text-align:left;">
@@ -330,6 +586,14 @@ function renderMenuHtml() {
           Reduced Flashing
         </label>
         <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+          <input type="checkbox" ${settings.hitFlash ? "checked" : ""} data-setting="hitFlash" style="width: 20px; height: 20px;">
+          Hit Flash
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
+          <input type="checkbox" ${settings.screenShake ? "checked" : ""} data-setting="screenShake" style="width: 20px; height: 20px;">
+          Screen Shake
+        </label>
+        <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
           <input type="checkbox" ${settings.diagonalMelee ? "checked" : ""} data-setting="diagonalMelee" style="width: 20px; height: 20px;">
           Diagonal Melee
         </label>
@@ -346,6 +610,30 @@ function renderMenuHtml() {
           Confirm descend on trapdoor
         </label>
       </div>
+      <div style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.35); border-radius: 8px;">
+        <div style="color: var(--accent); font-weight: 700; margin-bottom: 8px;">Difficulty</div>
+        <div style="opacity:0.85; margin-bottom: 8px;">Preset: ${escapeHtml(String(settings.difficultyPreset || "normal"))}</div>
+        <div style="display:flex; gap: 10px; flex-wrap: wrap; justify-content:center;">
+          <button type="button" data-diff-preset="easy" class="menu-button" style="color: var(--accent); ${settings.difficultyPreset === "easy" ? "background: rgba(0,255,255,0.12);" : ""}">Easy</button>
+          <button type="button" data-diff-preset="normal" class="menu-button" style="color: var(--accent); ${settings.difficultyPreset === "normal" ? "background: rgba(0,255,255,0.12);" : ""}">Normal</button>
+          <button type="button" data-diff-preset="hard" class="menu-button" style="color: var(--accent); ${settings.difficultyPreset === "hard" ? "background: rgba(0,255,255,0.12);" : ""}">Hard</button>
+        </div>
+        <div style="opacity:0.85; margin-top: 10px; text-align:center;">
+          Enemy HP x${Number(settings.enemyHpMult || 1).toFixed(2)} • Enemy DMG x${Number(settings.enemyDmgMult || 1).toFixed(2)}<br>
+          Loot x${Number(settings.lootMult || 1).toFixed(2)} • Hazards x${Number(settings.hazardMult || 1).toFixed(2)}
+        </div>
+        <div style="margin-top: 10px; text-align:center; opacity:0.85;">Fine-tune (sets preset to Custom)</div>
+        <div style="display:flex; gap: 8px; flex-wrap: wrap; justify-content:center; margin-top:6px;">
+          <button type="button" data-diff-adjust="enemyHpMult:-0.05" style="padding:6px 10px; border-radius:10px;">HP-</button>
+          <button type="button" data-diff-adjust="enemyHpMult:+0.05" style="padding:6px 10px; border-radius:10px;">HP+</button>
+          <button type="button" data-diff-adjust="enemyDmgMult:-0.05" style="padding:6px 10px; border-radius:10px;">DMG-</button>
+          <button type="button" data-diff-adjust="enemyDmgMult:+0.05" style="padding:6px 10px; border-radius:10px;">DMG+</button>
+          <button type="button" data-diff-adjust="lootMult:-0.05" style="padding:6px 10px; border-radius:10px;">Loot-</button>
+          <button type="button" data-diff-adjust="lootMult:+0.05" style="padding:6px 10px; border-radius:10px;">Loot+</button>
+          <button type="button" data-diff-adjust="hazardMult:-0.05" style="padding:6px 10px; border-radius:10px;">Haz-</button>
+          <button type="button" data-diff-adjust="hazardMult:+0.05" style="padding:6px 10px; border-radius:10px;">Haz+</button>
+        </div>
+      </div>
       <div style="margin-top: 15px;">
         <button type="button" data-action="save-game" class="menu-button" style="width: 100%; margin: 5px 0;">Save Game</button>
       </div>
@@ -361,8 +649,11 @@ function renderMenuHtml() {
       <div class="menu-tabs">
         ${tabBtn("inventory", "Inventory")}
         ${tabBtn("status", "Status")}
+        ${tabBtn("codex", "Codex")}
         ${cookingAtCampfire ? tabBtn("cook", "Cook") : ""}
         ${atShop ? tabBtn("shop", "Shop") : ""}
+        ${atBlacksmith ? tabBtn("blacksmith", "Blacksmith") : ""}
+        ${atBountyBoard ? tabBtn("bounties", "Bounties") : ""}
         ${tabBtn("help", "Help")}
         ${tabBtn("settings", "Settings")}
         ${tabBtn("log", "Log")}
@@ -416,6 +707,20 @@ function draw() {
 
   const viewRadius = getViewRadius();
   const vis = computeVisibility();
+  // Codex discovery: record visible enemies/items.
+  try {
+    for (const e of enemies || []) {
+      const k = `${e.x},${e.y}`;
+      if (vis?.has?.(k)) recordCodexEnemy?.(e?.name || "Enemy");
+    }
+    // Record "seen" items in currently visible tiles.
+    for (const k of vis || []) {
+      const loot = lootAtKey?.(k);
+      if (loot) recordCodexItemSeen?.(loot);
+    }
+  } catch {
+    // ignore
+  }
 
   // Map draw - center on player
   let out = "";
@@ -507,6 +812,12 @@ function draw() {
           ? `text-shadow: -1px 0 ${rar.outline}, 1px 0 ${rar.outline}, 0 -1px ${rar.outline}, 0 1px ${rar.outline}, 0 0 6px ${rar.outline};`
           : "";
         pushCell(p.symbol, `color:${p.color || "cyan"};${popCss}${outline}`);
+      } else if (propAtKey?.(key)) {
+        const pr = propAtKey(key);
+        const kind = String(pr?.kind || "");
+        const ch = kind === "crate" ? TILE.CRATE : TILE.BARREL;
+        const c = kind === "crate" ? "#c49a6c" : "#a86f3a";
+        pushCell(ch, `color:${c};${popCss}text-shadow: 0 0 4px rgba(0,0,0,0.6);`);
       } else {
         const ch = tileAtKey(key);
         const trap = trapAtKey(key);
@@ -541,6 +852,8 @@ function draw() {
           }
         } else if (ch === TILE.CAMPFIRE) pushCell("C", `color:orange;${popCss}`); // campfire
         else if (ch === TILE.SHOP) pushCell("$", `color:#ffd700;${popCss}`); // shop
+        else if (ch === TILE.BLACKSMITH) pushCell("K", `color:#c49a6c;${popCss}text-shadow: 0 0 6px rgba(196,154,108,0.35);`); // blacksmith
+        else if (ch === TILE.BOUNTY) pushCell("!", `color:var(--accent);${popCss}text-shadow: 0 0 6px rgba(0,255,255,0.35);`); // bounty board
         else pushCell(ch, "color:white;");
       }
     }

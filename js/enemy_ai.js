@@ -272,11 +272,23 @@ function moveEnemies() {
         const dmg = Math.max(0, rolled - player.toughness);
         if (dmg > 0) {
           player.hp -= dmg;
+          try {
+            setLastDamageSource({ kind: "enemy", name: eName, amount: dmg, floor, extra: { attack: "slam" } });
+            shakeScreen?.(0.9, 140);
+            flashGame?.("brightness(1.15) contrast(1.15) saturate(1.25)");
+          } catch {
+            // ignore
+          }
           addLog(`${eName} hurls a crushing blow for ${dmg}`, "enemy");
           showDamageNumber(player.x, player.y, dmg, "enemy");
           playSound?.("hurt");
           vibrate(25);
           floorStats.damageTaken += dmg;
+          try {
+            runStats.damageTaken = Math.max(0, Number(runStats.damageTaken || 0) + dmg);
+          } catch {
+            // ignore
+          }
         } else {
           addLog(`${eName}'s crushing blow glances off you`, "block");
         }
@@ -312,25 +324,22 @@ function moveEnemies() {
       const dmg = Math.max(0, rolled - player.toughness);
       player.hp -= dmg;
       if (dmg > 0) {
+        try {
+          setLastDamageSource({ kind: "enemy", name: eName, amount: dmg, floor, extra: { crit: !!crit } });
+          shakeScreen?.(crit ? 0.9 : 0.6, crit ? 150 : 110);
+          flashGame?.(crit ? "brightness(1.2) contrast(1.2) saturate(1.35)" : "brightness(1.12) saturate(1.15)");
+        } catch {
+          // ignore
+        }
         addLog(`${eName} hits you for ${dmg}`, "enemy");
         showDamageNumber(player.x, player.y, dmg, "enemy");
         playSound?.("hurt");
         vibrate(20);
         floorStats.damageTaken += dmg;
-        // Visual feedback
         try {
-          if (gameEl && !settings?.reducedMotion) {
-            gameEl.style.transition = "filter 0.1s";
-            gameEl.style.filter = "brightness(1.5)";
-            setTimeout(() => {
-              if (gameEl) gameEl.style.filter = "";
-              setTimeout(() => {
-                if (gameEl) gameEl.style.transition = "";
-              }, 100);
-            }, 100);
-          }
-        } catch (e) {
-          // Ignore visual feedback errors
+          runStats.damageTaken = Math.max(0, Number(runStats.damageTaken || 0) + dmg);
+        } catch {
+          // ignore
         }
         player.combo = 0;
       } else {
