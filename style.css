@@ -279,6 +279,16 @@ button.investigate-button.is-armed {
   background: rgba(255, 0, 255, 0.18);
 }
 
+/* ===== WAIT BUTTON ===== */
+button.wait-button {
+  border-color: #00ff66;
+  color: #00ff66;
+}
+
+button.wait-button.is-holding {
+  background: rgba(0, 255, 102, 0.18);
+}
+
 /* ===== MENU ===== */
 .menu-container {
   width: 100%;

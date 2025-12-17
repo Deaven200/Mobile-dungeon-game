@@ -1,6 +1,30 @@
 /* ===================== INPUTS ===================== */
 
 function bindInputs() {
+  const waitHold = { timeoutId: null, intervalId: null, pointerId: null, btn: null };
+
+  const stopWaitHold = () => {
+    if (waitHold.timeoutId) window.clearTimeout(waitHold.timeoutId);
+    if (waitHold.intervalId) window.clearInterval(waitHold.intervalId);
+    waitHold.timeoutId = null;
+    waitHold.intervalId = null;
+    waitHold.pointerId = null;
+    if (waitHold.btn) waitHold.btn.classList.remove("is-holding");
+    waitHold.btn = null;
+  };
+
+  // Make sure a hold can't get "stuck" (release outside button, tab switch, etc.).
+  window.addEventListener("pointerup", (e) => {
+    if (waitHold.pointerId != null && e.pointerId === waitHold.pointerId) stopWaitHold();
+  });
+  window.addEventListener("pointercancel", (e) => {
+    if (waitHold.pointerId != null && e.pointerId === waitHold.pointerId) stopWaitHold();
+  });
+  window.addEventListener("blur", stopWaitHold);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopWaitHold();
+  });
+
   if (controlsEl) {
     // Use pointerdown for snappy mobile controls.
     controlsEl.addEventListener("pointerdown", (e) => {
@@ -11,13 +35,50 @@ function bindInputs() {
 
       const action = btn.dataset.action;
       if (action === "menu") {
+        stopWaitHold();
         if (inMainMenu) return;
         toggleMenu();
         return;
       }
       if (action === "investigate") {
+        stopWaitHold();
         if (menuOpen || gamePaused || inMainMenu) return;
         setInvestigateArmed(!investigateArmed);
+        return;
+      }
+      if (action === "wait") {
+        if (menuOpen || gamePaused || inMainMenu) return;
+        if (investigateArmed) setInvestigateArmed(false);
+        stopWaitHold();
+
+        // Capture the pointer so releasing outside the button still stops the hold.
+        try {
+          btn.setPointerCapture(e.pointerId);
+        } catch {
+          // ignore
+        }
+
+        btn.classList.add("is-holding");
+        waitHold.pointerId = e.pointerId;
+        waitHold.btn = btn;
+
+        // One turn immediately.
+        waitTurn();
+
+        // If still valid, start repeating after a short delay.
+        waitHold.timeoutId = window.setTimeout(() => {
+          if (menuOpen || gamePaused || inMainMenu) {
+            stopWaitHold();
+            return;
+          }
+          waitHold.intervalId = window.setInterval(() => {
+            if (menuOpen || gamePaused || inMainMenu) {
+              stopWaitHold();
+              return;
+            }
+            waitTurn();
+          }, 300);
+        }, 300);
         return;
       }
     });

@@ -1,5 +1,54 @@
 /* ===================== PLAYER ===================== */
 
+function waitTurn() {
+  if (gamePaused) return;
+
+  // Waiting should cancel any auto-walk.
+  stopAutoMove();
+
+  // Hunger cost for spending a turn.
+  tickHunger(HUNGER_COST_MOVE);
+
+  // If we're standing on a trapdoor, allow descending prompt (same as moving onto it).
+  const currentTile = map[keyOf(player.x, player.y)] || "#";
+  if (currentTile === "T" && !enemies.some((e) => e.x === player.x && e.y === player.y)) {
+    showFloorTransition();
+    return;
+  }
+
+  // Shop interaction if we're standing on a shop tile.
+  const shopKey = keyOf(player.x, player.y);
+  if (map[`${shopKey}_shop`]) {
+    openShopMenu();
+    return;
+  }
+
+  moveMouse();
+  moveEnemies();
+  tickStatusEffects(player, "player");
+
+  // Hunger-based regeneration when out of combat
+  tickHungerRegeneration();
+
+  if (player.hp <= 0) {
+    addLog("You died", "death");
+    // Save high score before returning to menu
+    const highScore = localStorage.getItem("dungeonHighScore") || 0;
+    if (player.score > Number(highScore)) {
+      localStorage.setItem("dungeonHighScore", player.score);
+      addLog(`NEW HIGH SCORE: ${player.score}!`, "loot");
+    }
+
+    // Return to main menu after a brief delay
+    setTimeout(() => {
+      returnToMainMenu();
+    }, 2000);
+    return;
+  }
+
+  draw();
+}
+
 function move(dx, dy) {
   if (gamePaused) return;
 
