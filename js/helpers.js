@@ -838,8 +838,11 @@ function showEnterDungeonPrompt() {
           const transitionEl = document.getElementById("floorTransition");
           if (transitionEl) transitionEl.style.display = "none";
           gamePaused = false;
+cursor/extraction-game-concept-3720
           // New dive => new dungeon. Reseed so the floor layouts are fresh every time you enter.
           seedRng(createSeed());
+
+ main
           floor = 1;
           generateFloor();
         },
@@ -1477,7 +1480,10 @@ function getInvestigationInfoAt(tx, ty) {
   if (ch === TILE.TRAPDOOR) return { kind: "trapdoor" };
   if (ch === TILE.ENTRANCE) return { kind: "entrance" };
   if (ch === TILE.UPSTAIRS) return { kind: "upstairs" };
+ cursor/extraction-game-concept-3720
   if (ch === TILE.GRASS) return { kind: "grass" };
+
+ main
   if (ch === TILE.CAMPFIRE) return { kind: "campfire" };
   if (ch === TILE.SHOP) return { kind: "shop" };
   if (ch === TILE.WALL) return { kind: "wall" };
@@ -1785,6 +1791,7 @@ function showPromptOverlay(title, bodyHtml, buttons) {
   return true;
 }
 
+ cursor/extraction-game-concept-3720
 function showDialogueOverlay(title, pages, onDone) {
   const transitionEl = document.getElementById("floorTransition");
   if (!transitionEl) return false;
@@ -1850,6 +1857,8 @@ function showDialogueOverlay(title, pages, onDone) {
   return true;
 }
 
+
+ main
 function showRecruiterIntro(onDone) {
   const name = Array.isArray(NAMES) && NAMES.length ? NAMES[rand(0, NAMES.length - 1)] : "Unknown";
   const talentObj = Array.isArray(TALENTS) && TALENTS.length ? TALENTS[rand(0, TALENTS.length - 1)] : null;
@@ -1859,6 +1868,7 @@ function showRecruiterIntro(onDone) {
   player.name = name;
   player.talent = talentObj?.id || "none";
 
+ cursor/extraction-game-concept-3720
   const you = (t) => `<div style="margin-top:6px; color: var(--accent);">You: ${t}</div>`;
   const rec = (t) => `<div style="opacity:0.92;">Recruiter: ${t}</div>`;
 
@@ -1873,4 +1883,29 @@ function showRecruiterIntro(onDone) {
   ];
 
   showDialogueOverlay("Recruitment", pages, onDone);
+
+  const lines = [
+    `<div style="opacity:0.9;">Recruiter: What's your name?</div>`,
+    `<div style="margin-top:6px; color: var(--accent);">You: I'm ${escapeHtml(name)}.</div>`,
+    `<div style="margin-top:14px; opacity:0.9;">Recruiter: Any talents?</div>`,
+    `<div style="margin-top:6px; color: var(--accent);">You: ${escapeHtml(talentLabel)}.</div>`,
+  ];
+
+  showPromptOverlay(
+    "Recruitment",
+    `<div style="text-align:left; max-width: 520px;">${lines.join("")}</div>`,
+    [
+      {
+        id: "recruiterContinueBtn",
+        label: "Continue",
+        onClick: () => {
+          const transitionEl = document.getElementById("floorTransition");
+          if (transitionEl) transitionEl.style.display = "none";
+          gamePaused = false;
+          onDone?.();
+        },
+      },
+    ],
+  );
+ main
 }
