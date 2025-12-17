@@ -177,6 +177,15 @@ function bindInputs() {
         }
       }
       
+      // Shrine
+      if (tappedTile === TILE.SHRINE) {
+        const d = chebDist(player.x, player.y, tx, ty);
+        if (d <= 1) {
+          openShrineMenuAt?.(tx, ty);
+          return;
+        }
+      }
+
       // Bounty board
       if (tappedTile === "!") {
         const d = chebDist(player.x, player.y, tx, ty);
@@ -306,6 +315,21 @@ function bindInputs() {
       if (!btn) return;
       if (!menuOpen) return;
 
+      // Inventory UI: filter + selection (kept lightweight; draw() re-renders).
+      if (btn.dataset.invFilter != null) {
+        menuInvFilter = String(btn.dataset.invFilter || "all");
+        // If the selected item is not in the new filter, render() will auto-pick.
+        playSound?.("menu");
+        draw();
+        return;
+      }
+      if (btn.dataset.selectInv != null) {
+        menuSelectedInvIid = String(btn.dataset.selectInv || "");
+        playSound?.("menu");
+        draw();
+        return;
+      }
+
       if (btn.dataset.action === "close-menu") {
         toggleMenu();
         return;
@@ -361,6 +385,10 @@ function bindInputs() {
         equipToHand("main", Number(btn.dataset.equipMain));
         return;
       }
+      if (btn.dataset.equipOff != null) {
+        equipToHand("off", Number(btn.dataset.equipOff));
+        return;
+      }
 
       if (btn.dataset.unequipHand != null) {
         unequipHand(btn.dataset.unequipHand);
@@ -404,6 +432,10 @@ function bindInputs() {
       }
       if (btn.dataset.blacksmithUpgrade != null) {
         blacksmithUpgrade?.();
+        return;
+      }
+      if (btn.dataset.cleanseRef != null) {
+        cleanseCurseByRef?.(btn.dataset.cleanseRef);
         return;
       }
       if (btn.dataset.bountyAccept != null) {

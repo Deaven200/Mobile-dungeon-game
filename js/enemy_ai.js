@@ -268,8 +268,18 @@ function moveEnemies() {
 
       // Ranged slam: occasionally applies slow.
       if (e.bossCd <= 0 && dist <= 3 && rollChance(0.22)) {
+        const pb = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { toughness: 0, dodgeChance: 0, dmgTakenMult: 1 };
+        // Dodge check (works against boss specials too).
+        if (rollChance(Number(pb.dodgeChance || 0))) {
+          addLog("You dodge the crushing blow!", "loot");
+          playSound?.("miss");
+          tickStatusEffects(e, "enemy");
+          e.bossCd = 2;
+          continue;
+        }
         const rolled = Math.max(0, Math.floor((e.dmg || 1) * 0.6));
-        const dmg = Math.max(0, rolled - player.toughness);
+        const tough = Number(player.toughness || 0) + Number(pb.toughness || 0);
+        const dmg = Math.max(0, Math.floor(Math.max(0, rolled - tough) * Math.max(0.1, Number(pb.dmgTakenMult || 1))));
         if (dmg > 0) {
           player.hp -= dmg;
           try {
@@ -314,6 +324,15 @@ function moveEnemies() {
         }
       }
 
+      const pb = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { toughness: 0, dodgeChance: 0, thorns: 0, dmgTakenMult: 1 };
+      // Dodge (melee only)
+      if (rollChance(Number(pb.dodgeChance || 0))) {
+        addLog("You dodge!", "loot");
+        playSound?.("miss");
+        tickStatusEffects(e, "enemy");
+        continue;
+      }
+
       let rolled = rollBellInt(0, e.dmg);
       const crit = rollChance(0.05);
       if (crit && rolled > 0) {
@@ -321,7 +340,8 @@ function moveEnemies() {
         addLog(`${eName} CRITICAL HIT! ${rolled} damage!`, "enemy");
       }
       
-      const dmg = Math.max(0, rolled - player.toughness);
+      const tough = Number(player.toughness || 0) + Number(pb.toughness || 0);
+      const dmg = Math.max(0, Math.floor(Math.max(0, rolled - tough) * Math.max(0.1, Number(pb.dmgTakenMult || 1))));
       player.hp -= dmg;
       if (dmg > 0) {
         try {
@@ -342,6 +362,13 @@ function moveEnemies() {
           // ignore
         }
         player.combo = 0;
+        // Thorns reflect (melee only)
+        const th = Math.max(0, Math.floor(Number(pb.thorns || 0)));
+        if (th > 0) {
+          e.hp -= th;
+          addLog(`Thorns hit ${eName} for ${th}`, "player");
+          showDamageNumber(e.x, e.y, th, "player");
+        }
       } else {
         addLog(`${eName} hits you for ${dmg}`, "block");
       }
