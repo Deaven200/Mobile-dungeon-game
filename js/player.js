@@ -173,7 +173,20 @@ function move(dx, dy) {
   const nKey = keyOf(nx, ny);
   const tile = tileAtKey(nKey);
   const enemy = enemies.find((e) => e.x === nx && e.y === ny);
-  const prop = typeof propAtKey === "function" ? propAtKey(nKey) : null;
+  let prop = typeof propAtKey === "function" ? propAtKey(nKey) : null;
+
+  // Back-compat / safety: if a crate/barrel glyph exists without prop metadata (older saves),
+  // synthesize a minimal prop so bump-to-smash still works.
+  if (!prop && (tile === TILE.CRATE || tile === TILE.BARREL)) {
+    const kind = tile === TILE.CRATE ? "crate" : "barrel";
+    const hp = kind === "crate" ? 3 : 2;
+    prop = { kind, hp };
+    try {
+      if (typeof setPropAtKey === "function") setPropAtKey(nKey, prop);
+    } catch {
+      // ignore
+    }
+  }
 
   // Optional rule: disallow diagonal melee attacks.
   if (enemy && dx && dy && settings?.diagonalMelee === false) return;
