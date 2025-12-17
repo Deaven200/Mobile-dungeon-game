@@ -37,7 +37,7 @@ function generateFloor() {
 
   // Floor 0: safe courtyard outside the dungeon.
   if (floor === 0) {
-    const SIZE = 30;
+    const SIZE = 35;
     const MAX = SIZE - 1;
     for (let y = 0; y < SIZE; y++) {
       for (let x = 0; x < SIZE; x++) {
@@ -46,20 +46,82 @@ function generateFloor() {
       }
     }
 
-    // Center entrance.
-    const cx = 15;
-    const cy = 15;
+    const cx = Math.floor(SIZE / 2);
+    const cy = Math.floor(SIZE / 2);
+
+    // Helper: carve a simple path.
+    const carvePath = (x0, y0, x1, y1) => {
+      let x = x0;
+      let y = y0;
+      const stepX = () => (x < x1 ? 1 : x > x1 ? -1 : 0);
+      const stepY = () => (y < y1 ? 1 : y > y1 ? -1 : 0);
+      for (let i = 0; i < 300; i++) {
+        map[keyOf(x, y)] = TILE.FLOOR;
+        if (x === x1 && y === y1) break;
+        // Slightly jitter between horizontal/vertical for a more “path” feel.
+        const dx = stepX();
+        const dy = stepY();
+        if (dx && dy) {
+          if (rollChance(0.5)) x += dx;
+          else y += dy;
+        } else if (dx) x += dx;
+        else if (dy) y += dy;
+        else break;
+      }
+      map[keyOf(x1, y1)] = TILE.FLOOR;
+    };
+
+    // Helper: place a little building (walls with a floor interior and a doorway).
+    const placeBuilding = (x, y, w, h, doorSide = "south") => {
+      for (let yy = y; yy < y + h; yy++) {
+        for (let xx = x; xx < x + w; xx++) {
+          const isEdge = xx === x || yy === y || xx === x + w - 1 || yy === y + h - 1;
+          map[keyOf(xx, yy)] = isEdge ? TILE.WALL : TILE.FLOOR;
+        }
+      }
+      let dx = x + Math.floor(w / 2);
+      let dy = y + h - 1;
+      if (doorSide === "north") {
+        dy = y;
+      } else if (doorSide === "east") {
+        dx = x + w - 1;
+        dy = y + Math.floor(h / 2);
+      } else if (doorSide === "west") {
+        dx = x;
+        dy = y + Math.floor(h / 2);
+      }
+      map[keyOf(dx, dy)] = TILE.FLOOR;
+      return { doorX: dx, doorY: dy };
+    };
+
+    // Center entrance (dungeon door).
     map[keyOf(cx, cy)] = TILE.ENTRANCE;
 
-    // Courtyard shop (guaranteed): makes the extraction loop obvious.
-    const shopX = cx + 6;
-    const shopY = cy + 4;
+    // Campfire at the camp center.
+    const fireX = cx - 5;
+    const fireY = cy + 6;
+    map[keyOf(fireX, fireY)] = TILE.CAMPFIRE;
+
+    // Merchant building with shop inside.
+    const shopB = placeBuilding(cx + 6, cy + 3, 9, 7, "south");
+    const shopX = cx + 6 + 4;
+    const shopY = cy + 3 + 3;
     map[keyOf(shopX, shopY)] = TILE.SHOP;
     map[`${shopX},${shopY}_shop`] = true;
 
+    // A couple extra huts for flavor.
+    const hut1 = placeBuilding(cx - 15, cy + 2, 7, 6, "south");
+    const hut2 = placeBuilding(cx - 14, cy - 10, 8, 6, "east");
+
+    // Paths between key points.
+    carvePath(cx, cy, fireX, fireY);
+    carvePath(fireX, fireY, shopB.doorX, shopB.doorY);
+    carvePath(fireX, fireY, hut1.doorX, hut1.doorY);
+    carvePath(cx, cy, hut2.doorX, hut2.doorY);
+
     // Spawn player near the entrance.
     player.x = cx;
-    player.y = 20;
+    player.y = cy + 10;
 
     setMenuOpen(false);
     draw();

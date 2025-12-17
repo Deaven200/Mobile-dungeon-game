@@ -19,6 +19,7 @@ let settings = {
   autoSave: true,
   haptics: true,
   confirmDescend: true,
+  permadeath: true,
   // Accessibility
   largeText: false,
   highContrast: false,

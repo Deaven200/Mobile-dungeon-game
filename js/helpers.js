@@ -1033,6 +1033,11 @@ function deserializeHiddenArea(ha) {
 
 function saveGame(saveName = null) {
   try {
+    if (settings?.permadeath) {
+      addLog("Saving disabled (Permadeath)", "info");
+      return false;
+    }
+
     const trimmedLog = Array.isArray(logHistory) ? logHistory.slice(-200) : [];
     const exploredArr = Array.from(explored || []);
     const trimmedExplored = exploredArr.length > 25000 ? exploredArr.slice(-25000) : exploredArr;
@@ -1108,6 +1113,11 @@ function saveGame(saveName = null) {
 
 function loadGame(saveId = null) {
   try {
+    if (settings?.permadeath) {
+      addLog("Loading disabled (Permadeath)", "info");
+      return false;
+    }
+
     const saves = getAllSaves();
     
     if (saves.length === 0) {
@@ -1181,6 +1191,21 @@ function deleteSave(saveId) {
 function showLoadMenu() {
   const mainMenuEl = document.getElementById("mainMenu");
   if (!mainMenuEl) return;
+
+  if (settings?.permadeath) {
+    mainMenuEl.innerHTML = `
+      <div class="menu-screen">
+        <h1 class="menu-title">Load Game</h1>
+        <div class="menu-buttons">
+          <div style="text-align: center; padding: 20px; color: var(--accent);">Disabled in Permadeath</div>
+          <button type="button" class="menu-screen-button" id="backToMainMenuBtn">Back to Menu</button>
+        </div>
+      </div>
+    `;
+    const backBtn = document.getElementById("backToMainMenuBtn");
+    if (backBtn) backBtn.addEventListener("click", () => initMainMenu());
+    return;
+  }
   
   const saves = getAllSaves();
   
@@ -1346,7 +1371,7 @@ function returnToMainMenu() {
 
 function quitToMenu() {
   if (confirm("Quit to main menu? Progress will be saved.")) {
-    if (settings.autoSave) {
+    if (settings.autoSave && !settings?.permadeath) {
       saveGame("Auto-save");
     }
     returnToMainMenu();
@@ -1413,6 +1438,10 @@ function showMainMenuSettings() {
           <input type="checkbox" ${settings.confirmDescend ? "checked" : ""} id="setting-confirm-descend" style="width: 20px; height: 20px;">
           Confirm descend on trapdoor
         </label>
+        <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
+          <input type="checkbox" ${settings.permadeath ? "checked" : ""} id="setting-permadeath" style="width: 20px; height: 20px;">
+          Permadeath (no saves)
+        </label>
         <button type="button" class="menu-screen-button" id="backToMenuBtn" style="margin-top: 15px;">Back to Menu</button>
       </div>
     </div>
@@ -1436,6 +1465,7 @@ function showMainMenuSettings() {
   const diagonalMeleeCheck = document.getElementById("setting-diagonal-melee");
   const hapticsCheck = document.getElementById("setting-haptics");
   const confirmDescendCheck = document.getElementById("setting-confirm-descend");
+  const permadeathCheck = document.getElementById("setting-permadeath");
   
   if (damageCheck) {
     damageCheck.addEventListener("change", (e) => {
@@ -1498,6 +1528,15 @@ function showMainMenuSettings() {
       localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
     });
   }
+
+  if (permadeathCheck) {
+    permadeathCheck.addEventListener("change", (e) => {
+      settings.permadeath = !!e.target.checked;
+      // If enabling permadeath, also disable autosave (it’s meaningless).
+      if (settings.permadeath) settings.autoSave = false;
+      localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+    });
+  }
 }
 
 function initMainMenu() {
@@ -1515,7 +1554,7 @@ function initMainMenu() {
       ${versionLabel ? `<div class="menu-version">v${escapeHtml(versionLabel)}</div>` : ""}
       <div class="menu-buttons">
         <button type="button" id="startGameBtn" class="menu-screen-button">Start Game</button>
-        <button type="button" id="loadGameBtn" class="menu-screen-button">Load Game</button>
+        ${settings?.permadeath ? "" : `<button type="button" id="loadGameBtn" class="menu-screen-button">Load Game</button>`}
         <button type="button" id="settingsMenuBtn" class="menu-screen-button">Settings</button>
         ${gameStarted ? '<button type="button" id="quitToMenuBtn" class="menu-screen-button">Quit to Menu</button>' : ''}
         <button type="button" id="quitGameBtn" class="menu-screen-button" style="margin-top: 10px; border-color: #ff4444; color: #ff4444;">Quit Game</button>
@@ -1540,7 +1579,7 @@ function initMainMenu() {
 
 function quitGame() {
   if (confirm("Quit the game? Your progress will be saved automatically.")) {
-    if (settings.autoSave && gameStarted) {
+    if (settings.autoSave && gameStarted && !settings?.permadeath) {
       saveGame("Auto-save");
     }
     // Close the window/tab if possible, otherwise just show a message

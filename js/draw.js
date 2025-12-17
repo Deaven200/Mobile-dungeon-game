@@ -126,6 +126,7 @@ function renderMenuHtml() {
       Tough ${player.toughness}<br>
       Inventory ${player.inventory?.length || 0}/${player.maxInventory || "∞"}<br>
       Gold: ${player.gold || 0}<br>
+      Permadeath: ${settings?.permadeath ? "ON" : "OFF"}<br>
       Floor ${floor}<br>
       Score: ${player.score || 0}<br>
       Kills: ${player.kills || 0}<br>

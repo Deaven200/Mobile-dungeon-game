@@ -13,26 +13,20 @@ function handlePlayerDeathIfNeeded() {
     addLog(`NEW HIGH SCORE: ${player.score}!`, "loot");
   }
 
-  // Extraction-style death: you wake up back in the courtyard.
-  // You keep long-term progression (gold/gear/stats), but lose whatever you were carrying.
-  const lostCount = Array.isArray(player.inventory) ? player.inventory.length : 0;
-  player.inventory = [];
-  player.combo = 0;
-  player.kills = 0;
-  player.score = 0; // score is per-dive
-  player.statusEffects = {};
-  player.hp = player.maxHp;
-  player.hunger = player.maxHunger;
-  stopAutoMove();
+  // Permadeath: run ends, player wipes, back to main menu.
+  // (Saves are disabled in permadeath mode; best-effort clear any existing saves.)
+  if (settings?.permadeath) {
+    try {
+      localStorage.removeItem("dungeonGameSaves");
+    } catch {
+      // ignore
+    }
+  }
 
+  // Return to main menu after a brief delay
   setTimeout(() => {
-    floor = 0;
-    addLog(lostCount ? `You dropped your pack (${lostCount} items lost).` : "You stagger back outside.", "danger");
-    generateFloor();
-    gamePaused = false;
-    setMenuOpen(false);
-    draw();
-  }, 900);
+    returnToMainMenu();
+  }, 2000);
   return true;
 }
 
