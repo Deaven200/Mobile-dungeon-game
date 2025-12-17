@@ -144,6 +144,18 @@
       "Treasure! The kind you can’t eat, but can absolutely sell.",
       "A shiny trinket. Your future self is already spending it.",
     ],
+    
+    weapon: [
+      "A weapon. The most honest kind of problem-solver.",
+      "A weapon. Point it at your problems until they stop being problems.",
+      "A weapon. Suddenly, your odds feel negotiable.",
+    ],
+    
+    sword: [
+      "A sword. Classic. Reliable. Extremely persuasive.",
+      "A sword. For when ‘talking’ is overrated.",
+      "A sword. The dungeon’s language is violence—this helps you speak it.",
+    ],
 
     trapdoor: [
       "Trapdoor. Because stairs are too mainstream.",
@@ -269,7 +281,7 @@
 
   // Public API: keep script.js small.
 
-  // info.kind can be: player, wall, falseWall, floor, grass, mouse, enemy, potion, food, valuable, trap, trapdoor, entrance, upstairs, campfire, shop
+  // info.kind can be: player, wall, falseWall, floor, grass, mouse, enemy, potion, food, valuable, weapon, trap, trapdoor, entrance, upstairs, campfire, shop
 
   window.getInvestigationDescription = function getInvestigationDescription(info) {
     const kind = String(info?.kind || "").toLowerCase();
@@ -290,6 +302,18 @@
     if (kind === "campfire") return pick(TEXTS.campfire);
     if (kind === "shop") return pick(TEXTS.shop);
     if (kind === "valuable") return pick(TEXTS.valuable);
+    if (kind === "weapon") {
+      const w = info?.weapon;
+      const base = String(w?.weaponType || "").toLowerCase() === "sword" ? pick(TEXTS.sword) : pick(TEXTS.weapon);
+      const lvl = Number.isFinite(Number(w?.level)) ? Math.floor(Number(w.level)) : null;
+      const rar = w?.rarity ? String(w.rarity) : null;
+      const dmg = Number.isFinite(Number(w?.maxDamage)) ? Math.floor(Number(w.maxDamage)) : null;
+      const parts = [];
+      if (rar) parts.push(`Rarity: ${rar}`);
+      if (lvl != null) parts.push(`Level: ${lvl}`);
+      if (dmg != null) parts.push(`Damage: 0-${dmg}`);
+      return parts.length ? `${base} ${parts.join(" | ")}` : base;
+    }
 
     return "You investigate it thoroughly and learn… very little.";
   };

@@ -1674,6 +1674,7 @@ function getInvestigationInfoAt(tx, ty) {
     const effect = String(loot?.effect || "").toLowerCase();
     if (effect === "food") return { kind: "food", food: loot };
     if (effect === "valuable") return { kind: "valuable", valuable: loot };
+    if (effect === "weapon") return { kind: "weapon", weapon: loot };
     return { kind: "potion", potion: loot };
   }
 
