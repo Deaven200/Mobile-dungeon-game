@@ -69,6 +69,8 @@ function bindInputs() {
   // Tap-to-move on the map: tap a tile to auto-walk to it (step-by-step).
   if (mapContainerEl) {
     mapContainerEl.addEventListener("pointerdown", (e) => {
+      // Any interaction with the map cancels hold-to-wait.
+      stopWaitHold();
       if (menuOpen || gamePaused || inMainMenu) return;
       // Don't treat button taps as movement (menu button lives outside, but be safe).
       if (e.target.closest("button")) return;
@@ -260,6 +262,7 @@ function bindInputs() {
   // Keyboard shortcuts (for desktop testing)
   window.addEventListener("keydown", (e) => {
     if (inMainMenu) return;
+    stopWaitHold();
     if (menuOpen && e.key === "Escape") {
       toggleMenu();
       e.preventDefault();
