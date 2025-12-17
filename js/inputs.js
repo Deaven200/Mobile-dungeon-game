@@ -162,6 +162,23 @@ function bindInputs() {
         }
       }
 
+      // Courtyard entrance / dungeon exit: tapping adjacent can trigger the prompt
+      // (same UX as shop/campfire).
+      if (tappedTile === "D") {
+        const d = chebDist(player.x, player.y, tx, ty);
+        if (d <= 1 && floor === 0) {
+          showEnterDungeonPrompt();
+          return;
+        }
+      }
+      if (tappedTile === "U") {
+        const d = chebDist(player.x, player.y, tx, ty);
+        if (d <= 1 && floor > 0) {
+          showExitToCourtyardPrompt();
+          return;
+        }
+      }
+
       if (investigateArmed) {
         e.preventDefault();
         setInvestigateArmed(false);

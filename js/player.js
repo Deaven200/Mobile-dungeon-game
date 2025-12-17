@@ -199,22 +199,26 @@ function move(dx, dy) {
 
       // Rat meat drop (rats only).
       const deathKey = keyOf(nx, ny);
+      const deathBaseTile = tileAtKey(deathKey);
+      // Loot is stored separately via *_loot keys. Only "paint" the map tile on normal terrain,
+      // otherwise we risk overwriting special tiles like trapdoors/exits.
+      const canPaintLootTile = deathBaseTile === TILE.FLOOR || deathBaseTile === TILE.GRASS;
       if ((enemy?.name || "").toLowerCase().includes("rat") && rollChance(0.2) && !lootAtKey(deathKey)) {
-        setTileAtKey(deathKey, RAT_MEAT.symbol);
+        if (canPaintLootTile) setTileAtKey(deathKey, RAT_MEAT.symbol);
         setLootAtKey(deathKey, RAT_MEAT);
         addLog("Rat dropped meat", "loot");
       } else if (!lootAtKey(deathKey) && (rollChance(0.08) || (player.combo >= 3 && rollChance(0.14)))) {
         // Valuables: meant to be sold after you extract.
         if (Array.isArray(VALUABLES) && VALUABLES.length) {
           const v = VALUABLES[rand(0, VALUABLES.length - 1)];
-          setTileAtKey(deathKey, v.symbol);
+          if (canPaintLootTile) setTileAtKey(deathKey, v.symbol);
           setLootAtKey(deathKey, v);
           addLog(`${enemy?.name || "Enemy"} dropped ${v.name}`, "loot");
         }
       } else if (!lootAtKey(deathKey) && (rollChance(0.05) || (player.combo >= 3 && rollChance(0.15)))) {
         // Better potion drop rate on combo
         const p = POTIONS[rand(0, POTIONS.length - 1)];
-        setTileAtKey(deathKey, TILE.POTION);
+        if (canPaintLootTile) setTileAtKey(deathKey, TILE.POTION);
         setLootAtKey(deathKey, p);
         addLog(`${enemy?.name || "Enemy"} dropped a potion`, "loot");
       }
@@ -265,7 +269,10 @@ function move(dx, dy) {
       vibrate(10);
       floorStats.itemsFound++;
       clearLootAtKey(pKey);
-      setTileAtKey(pKey, TILE.FLOOR);
+      // Only clear the map tile if we actually "painted" it as loot.
+      // If loot was dropped on a special tile (trapdoor/upstairs/etc.), we leave the base tile intact.
+      const painted = tileAtKey(pKey) === loot.symbol || tileAtKey(pKey) === TILE.POTION;
+      if (painted) setTileAtKey(pKey, TILE.FLOOR);
     }
   }
 
