@@ -273,6 +273,15 @@ button.wait-button:active {
   background: rgba(255, 212, 0, 0.12);
 }
 
+button.hand-slot-button {
+  border-color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+button.hand-slot-button:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 button.menu-button-only:active {
   transform: translateY(1px);
   background: rgba(20, 20, 20, 0.9);
