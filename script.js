@@ -3234,15 +3234,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
 
-      // Settings controls in the in-game menu use [data-setting] elements.
+      // Settings toggles in the in-game menu are <input type="checkbox"> elements.
       gameEl.addEventListener("change", (e) => {
         if (!menuOpen) return;
-        const el = e.target.closest?.("[data-setting]");
-        if (!el) return;
-        const key = el.dataset.setting;
+        const input = e.target.closest?.("input[data-setting]");
+        if (!input) return;
+        const key = input.dataset.setting;
         if (!key) return;
 
-        settings[key] = !!el.checked;
+        settings[key] = !!input.checked;
         window.gameSettings = settings; // Update global reference
         try {
           localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
