@@ -729,26 +729,6 @@ function setInventorySort(mode) {
 }
 window.setInventorySort = setInventorySort;
 
-function adjustDifficulty(key, delta) {
-  const k = String(key || "");
-  const d = Number(delta || 0);
-  if (!Number.isFinite(d) || !k) return;
-  const allowed = new Set(["enemyHpMult", "enemyDmgMult", "lootMult", "hazardMult", "propDensity", "screenShakeIntensity"]);
-  if (!allowed.has(k)) return;
-  settings.difficultyPreset = "custom";
-  const cur = Number(settings[k] || 1);
-  const next = clamp(cur + d, 0, 3);
-  settings[k] = k === "screenShakeIntensity" ? clamp(next, 0.3, 2) : next;
-  window.gameSettings = settings;
-  try {
-    localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
-  } catch {
-    // ignore
-  }
-  draw();
-}
-window.adjustDifficulty = adjustDifficulty;
-
 function resetRunStats() {
   runStats = {
     startedAt: Date.now(),
@@ -845,9 +825,10 @@ function flashGame(filterCss = "brightness(1.35)") {
 
 // Difficulty presets (applied to multipliers in settings).
 const DIFFICULTY_PRESETS = Object.freeze({
-  easy: { enemyHpMult: 0.85, enemyDmgMult: 0.8, lootMult: 1.15, hazardMult: 0.85, propDensity: 1.1 },
+  // Risk/reward: easier runs yield less loot.
+  easy: { enemyHpMult: 0.85, enemyDmgMult: 0.8, lootMult: 0.85, hazardMult: 0.85, propDensity: 0.9 },
   normal: { enemyHpMult: 1, enemyDmgMult: 1, lootMult: 1, hazardMult: 1, propDensity: 1 },
-  hard: { enemyHpMult: 1.2, enemyDmgMult: 1.25, lootMult: 0.95, hazardMult: 1.25, propDensity: 1.1 },
+  hard: { enemyHpMult: 1.2, enemyDmgMult: 1.25, lootMult: 1.15, hazardMult: 1.25, propDensity: 1.1 },
 });
 
 function applyDifficultyPreset(presetId) {
@@ -1627,9 +1608,6 @@ function showFloorTransition() {
   setInvestigateArmed(false);
   gamePaused = true;
 
-  const rewards = getFloorRewardChoices();
-  let selectedRewardId = settings.confirmDescend ? null : rewards[0]?.id || null;
-  
   transitionEl.style.display = "flex";
   transitionEl.innerHTML = `
     <h2>Descend to Floor ${floor + 1}?</h2>
@@ -1640,20 +1618,6 @@ function showFloorTransition() {
       ${floorStats.damageDealt ? `Damage Dealt: ${floorStats.damageDealt}<br>` : ""}
       ${floorStats.damageTaken ? `Damage Taken: ${floorStats.damageTaken}<br>` : ""}
     </div>
-    <div style="margin: 12px 0; text-align:center;">
-      <div style="color: var(--accent); margin-bottom: 8px; font-weight: bold;">Choose a reward</div>
-      <div style="display:flex; gap: 10px; justify-content:center; flex-wrap: wrap;">
-        ${rewards
-          .map(
-            (r) => `<button type="button" data-reward="${escapeHtml(r.id)}" style="min-width: 160px; padding: 10px 14px; border-radius: 10px; border: 2px solid rgba(0,255,255,0.35); background: rgba(0,0,0,0.75); color: var(--accent);">
-              <div style="font-weight:700;">${escapeHtml(r.label)}</div>
-              <div style="font-size: 0.85em; opacity: 0.8;">${escapeHtml(r.desc)}</div>
-            </button>`,
-          )
-          .join("")}
-      </div>
-      ${settings.confirmDescend ? `<div style="margin-top: 8px; font-size: 0.85em; opacity: 0.8;">(Optional — you can skip)</div>` : `<div style="margin-top: 8px; font-size: 0.85em; opacity: 0.8;">(Auto-selected)</div>`}
-    </div>
     ${
       settings.confirmDescend
         ? `<div style="display:flex; gap: 10px; justify-content:center; flex-wrap: wrap;">
@@ -1663,31 +1627,11 @@ function showFloorTransition() {
         : `<button type="button" id="continueBtn">Continue to Floor ${floor + 1}</button>`
     }
   `;
-  
-  // Reward selection
-  const rewardBtns = Array.from(transitionEl.querySelectorAll("button[data-reward]"));
-  const syncRewardUi = () => {
-    for (const b of rewardBtns) {
-      const isSel = b.dataset.reward === selectedRewardId;
-      b.style.borderColor = isSel ? "var(--accent)" : "rgba(0,255,255,0.35)";
-      b.style.background = isSel ? "rgba(0,255,255,0.12)" : "rgba(0,0,0,0.75)";
-    }
-  };
-  for (const b of rewardBtns) {
-    b.onclick = () => {
-      selectedRewardId = b.dataset.reward || null;
-      playSound?.("menu");
-      syncRewardUi();
-    };
-  }
-  syncRewardUi();
 
   const btn = document.getElementById("continueBtn");
   if (btn) {
     btn.onclick = () => {
       transitionEl.style.display = "none";
-      const chosen = rewards.find((r) => r.id === selectedRewardId);
-      if (chosen) applyFloorReward(chosen);
       playSound?.("floor");
       floor++;
       generateFloor();
@@ -1708,18 +1652,16 @@ function showFloorTransition() {
     saveGame("Auto-save");
   }
   
-  // Auto-continue after 3 seconds
+  // Auto-continue quickly when confirm is off.
   if (!settings.confirmDescend) {
     setTimeout(() => {
       if (transitionEl && transitionEl.style.display !== "none") {
         transitionEl.style.display = "none";
-        const chosen = rewards.find((r) => r.id === selectedRewardId) || rewards[0];
-        if (chosen) applyFloorReward(chosen);
         playSound?.("floor");
         floor++;
         generateFloor();
       }
-    }, 3000);
+    }, 450);
   }
 }
 
@@ -2579,10 +2521,18 @@ function isPlayerWalkable(x, y) {
   // Hidden area tiles block movement until revealed, except the entrance false-wall tiles.
   if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k) && !hiddenArea.falseWalls?.has(k)) return false;
 
-  const tile = tileAtKey(k);
-  if (!isWalkableTile(tile)) return false;
+  // Enemies block movement.
   if (enemies.some((e) => e.x === x && e.y === y)) return false;
-  return true;
+
+  // Props are solid until smashed.
+  const tile = tileAtKey(k);
+  if (tile === TILE.CRATE || tile === TILE.BARREL) return false;
+
+  // Allow stepping onto loot glyphs (they are stored as map chars, not floor).
+  if (lootAtKey(k)) return true;
+
+  // Otherwise require walkable terrain/special tiles.
+  return isWalkableTile(tile);
 }
 
 function buildPathBfs(goalX, goalY, limitOverride = null) {
