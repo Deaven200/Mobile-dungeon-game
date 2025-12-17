@@ -2,9 +2,10 @@
   "name": "Dungeon Roguelike",
   "short_name": "Dungeon",
   "description": "A mobile-friendly ASCII dungeon roguelike.",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "id": "./",
   "background_color": "#000000",
   "theme_color": "#000000",
   "icons": [
