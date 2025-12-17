@@ -9,6 +9,10 @@ This is a mobile-friendly ASCII dungeon roguelike that runs in the browser, and 
 
 These are **copy/paste** links. (The GitHub Pages link will work after Pages is enabled and the workflow finishes.)
 
+If you fork this repo, your links will look like:
+- `https://<user>.github.io/<repo>/`
+- `https://github.com/<user>/<repo>/archive/refs/heads/main.zip`
+
 ## What is the game?
 
 You explore a procedurally generated ASCII dungeon, fight enemies by moving into them, find potions/food, avoid traps (some are hidden), and descend via the trapdoor to progress floors. It’s designed primarily for mobile: tap-to-move pathfinding, pinch-to-zoom, and a pause/menu button.
