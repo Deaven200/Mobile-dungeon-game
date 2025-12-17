@@ -3250,10 +3250,6 @@ document.addEventListener("DOMContentLoaded", () => {
           // ignore
         }
 
-        if (key === "haptics" && settings.haptics) {
-          vibrate(10);
-        }
-
         if (settings.autoSave && key !== "autoSave") {
           setTimeout(() => saveGame("Auto-save"), 100);
         }
