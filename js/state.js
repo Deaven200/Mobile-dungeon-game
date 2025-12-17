@@ -3,6 +3,9 @@
 let floor = 1;
 let menuOpen = false;
 let activeTab = "inventory";
+// In-menu UI state (not saved; purely presentation).
+let menuInvFilter = "all"; // all | weapons | trinkets | consumables | materials | valuables
+let menuSelectedInvIid = null; // item iid (string) for inventory details pane
 let gamePaused = false;
 let investigateArmed = false;
 let cookingAtCampfire = false;

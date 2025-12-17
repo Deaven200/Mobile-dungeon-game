@@ -306,6 +306,21 @@ function bindInputs() {
       if (!btn) return;
       if (!menuOpen) return;
 
+      // Inventory UI: filter + selection (kept lightweight; draw() re-renders).
+      if (btn.dataset.invFilter != null) {
+        menuInvFilter = String(btn.dataset.invFilter || "all");
+        // If the selected item is not in the new filter, render() will auto-pick.
+        playSound?.("menu");
+        draw();
+        return;
+      }
+      if (btn.dataset.selectInv != null) {
+        menuSelectedInvIid = String(btn.dataset.selectInv || "");
+        playSound?.("menu");
+        draw();
+        return;
+      }
+
       if (btn.dataset.action === "close-menu") {
         toggleMenu();
         return;
@@ -359,6 +374,10 @@ function bindInputs() {
 
       if (btn.dataset.equipMain != null) {
         equipToHand("main", Number(btn.dataset.equipMain));
+        return;
+      }
+      if (btn.dataset.equipOff != null) {
+        equipToHand("off", Number(btn.dataset.equipOff));
         return;
       }
 
