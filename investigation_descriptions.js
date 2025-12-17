@@ -3,7 +3,8 @@
 (() => {
   "use strict";
 
-  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const rand01 = () => (typeof window.rand01 === "function" ? window.rand01() : Math.random());
+  const pick = (arr) => arr[Math.floor(rand01() * arr.length)];
 
   const TEXTS = {
     player: [

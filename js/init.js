@@ -23,6 +23,13 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (e) {
     // Use defaults
   }
+
+  // Apply accessibility classes early (before first draw).
+  try {
+    window.applyAccessibilitySettings?.();
+  } catch {
+    // ignore
+  }
   
   // Initialize RNG so gameplay logic is deterministic and safe before starting.
   seedRng(createSeed());

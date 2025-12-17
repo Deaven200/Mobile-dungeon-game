@@ -29,7 +29,9 @@ function generateFloor() {
   enemies = [];
   hiddenArea = null;
   mouse = null;
+  lastTarget = null;
   explored = new Set();
+  visibleNow = new Set();
   floorStats = { enemiesKilled: 0, itemsFound: 0, damageTaken: 0, damageDealt: 0, trapsTriggered: 0 };
   hiddenTrapCount = 0;
 
@@ -127,10 +129,10 @@ function generateFloor() {
         const tx = rand(r.x, r.x + r.w - 1);
         const ty = rand(r.y, r.y + r.h - 1);
         const key = `${tx},${ty}`;
-        if (map[key] === "." && !map[`${key}_loot`] && !map[`${key}_trap`]) {
+        if (map[key] === "." && !lootAtKey(key) && !trapAtKey(key)) {
           const trap = TRAP_TYPES[rand(0, TRAP_TYPES.length - 1)];
           const hidden = rollChance(0.3);
-          map[`${key}_trap`] = { ...trap, hidden };
+          setTrapAtKey(key, { ...trap, hidden });
           if (hidden) hiddenTrapCount++;
           else map[key] = "~";
         }
@@ -156,9 +158,65 @@ function generateFloor() {
   placeCampfire();
   spawnMouse();
 
+  // Soft guarantees to reduce streaky runs (pity-style pacing).
+  ensureFloorHasAtLeastOneFood();
+  ensureFloorHasAtLeastOneHealthPotion();
+
   // Always close menu when generating a new floor (death/descend).
   setMenuOpen(false);
   draw();
+}
+
+function pickRandomOpenTileInRoom(r) {
+  if (!r) return null;
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const x = rand(r.x, r.x + r.w - 1);
+    const y = rand(r.y, r.y + r.h - 1);
+    const k = keyOf(x, y);
+    if (tileAtKey(k) !== TILE.FLOOR) continue;
+    if (enemies.some((e) => e.x === x && e.y === y)) continue;
+    if (lootAtKey(k) || trapAtKey(k)) continue;
+    if (x === player.x && y === player.y) continue;
+    return { x, y, k };
+  }
+  return null;
+}
+
+function countLootWhere(predicate) {
+  let n = 0;
+  for (const [k, v] of Object.entries(map)) {
+    if (!k.endsWith("_loot")) continue;
+    if (predicate(v)) n++;
+  }
+  return n;
+}
+
+function ensureFloorHasAtLeastOneFood() {
+  const hasFood = countLootWhere((it) => String(it?.effect || "") === "food") > 0;
+  if (hasFood) return;
+  // Prefer start room, then any non-boss room.
+  const candidates = rooms.filter((r) => r.type === "start" || r.type === "enemy" || r.type === "treasure" || r.type === "shop");
+  const r = candidates.length ? candidates[rand(0, candidates.length - 1)] : rooms[0];
+  const spot = pickRandomOpenTileInRoom(r);
+  if (!spot) return;
+  const food = rollChance(0.5) ? MUSHROOM : BERRY;
+  setTileAtKey(spot.k, food.symbol);
+  setLootAtKey(spot.k, food);
+}
+
+function ensureFloorHasAtLeastOneHealthPotion() {
+  // Keep it gentle: guarantee a heal potion every floor 1-2, then every ~3 floors.
+  const hasHeal = countLootWhere((it) => String(it?.effect || "") === "fullHeal") > 0;
+  if (hasHeal) return;
+  const shouldGuarantee = floor <= 2 || floor % 3 === 0;
+  if (!shouldGuarantee) return;
+  const healthPotion = POTIONS.find((p) => p.name === "Health Potion") || POTIONS[0];
+  const candidates = rooms.filter((r) => r.type === "start" || r.type === "enemy" || r.type === "treasure" || r.type === "trap" || r.type === "shop");
+  const r = candidates.length ? candidates[rand(0, candidates.length - 1)] : rooms[0];
+  const spot = pickRandomOpenTileInRoom(r);
+  if (!spot) return;
+  setTileAtKey(spot.k, TILE.POTION);
+  setLootAtKey(spot.k, healthPotion);
 }
 
 function placeCampfire() {
@@ -174,7 +232,7 @@ function placeCampfire() {
     const k = keyOf(x, y);
     if ((map[k] || "#") !== ".") continue;
     if (x === player.x && y === player.y) continue;
-    if (map[`${k}_loot`] || map[`${k}_trap`]) continue;
+    if (lootAtKey(k) || trapAtKey(k)) continue;
     map[k] = "C";
     return;
   }
@@ -303,16 +361,21 @@ function spawnBossEnemy(x, y, w, h) {
   const bossX = Math.floor(x + w / 2);
   const bossY = Math.floor(y + h / 2);
   
+  const bossHp = Math.floor(baseEnemy.hp * 2.5) + Math.floor(floor / 5);
   const boss = {
     ...baseEnemy,
     x: bossX,
     y: bossY,
     symbol: baseEnemy.symbol.toUpperCase(), // Uppercase symbol
     name: `Boss ${baseEnemy.name}`,
-    hp: Math.floor(baseEnemy.hp * 2.5) + Math.floor(floor / 5), // Much stronger
+    hp: bossHp, // Much stronger
+    maxHp: bossHp,
     dmg: Math.floor(baseEnemy.dmg * 1.5) + Math.floor(floor / 10),
     toughness: (baseEnemy.toughness || 0) + 1,
     statusEffects: {},
+    isBoss: true,
+    bossCd: 0,
+    bossSummoned: false,
   };
   
   enemies.push(boss);
@@ -336,6 +399,7 @@ function spawnEnemies(x, y, w, h) {
         x: ex,
         y: ey,
         hp: t.hp,
+        maxHp: t.hp,
         dmg: t.dmg,
         color: t.color,
         sight: t.sight,
@@ -354,6 +418,7 @@ function spawnEnemies(x, y, w, h) {
         x,
         y,
         hp: t.hp,
+        maxHp: t.hp,
         dmg: t.dmg,
         color: t.color,
         sight: t.sight,
@@ -378,8 +443,8 @@ function spawnPotion(x, y, w, h) {
     if (map[`${px},${py}`] !== ".") continue;
     if (enemies.some((e) => e.x === px && e.y === py)) continue;
 
-    map[`${px},${py}`] = "P";
-    map[`${px},${py}_loot`] = p;
+    setTileAt(px, py, TILE.POTION);
+    setLootAtKey(keyOf(px, py), p);
     return;
   }
 }
@@ -393,10 +458,10 @@ function spawnFood(x, y, w, h) {
     const fy = rand(y, y + h - 1);
     if (map[`${fx},${fy}`] !== ".") continue;
     if (enemies.some((e) => e.x === fx && e.y === fy)) continue;
-    if (map[`${fx},${fy}_loot`]) continue;
+    if (lootAt(fx, fy)) continue;
 
     map[`${fx},${fy}`] = food.symbol;
-    map[`${fx},${fy}_loot`] = food;
+    setLootAtKey(keyOf(fx, fy), food);
     return;
   }
 }
@@ -466,10 +531,10 @@ function placeTraps() {
       const y = rand(r.y, r.y + r.h - 1);
       const key = `${x},${y}`;
       if (map[key] !== ".") continue;
-      if (map[`${key}_loot`]) continue;
+      if (lootAtKey(key)) continue;
       if (enemies.some((e) => e.x === x && e.y === y)) continue;
 
-      map[`${key}_trap`] = { ...trap, hidden };
+      setTrapAtKey(key, { ...trap, hidden });
       if (hidden) hiddenTrapCount++;
       else map[key] = "~";
       placed = true;
@@ -588,7 +653,7 @@ function generateHiddenRoom() {
         ok = false;
         break;
       }
-      if (map[`${k}_loot`] || map[`${k}_trap`]) {
+      if (lootAtKey(k) || trapAtKey(k)) {
         ok = false;
         break;
       }
@@ -604,14 +669,14 @@ function generateHiddenRoom() {
 
     const potionKey = candidates[rand(0, candidates.length - 1)];
     map[potionKey] = "P";
-    map[`${potionKey}_loot`] = hiddenPotion;
+    setLootAtKey(potionKey, hiddenPotion);
 
     let trapKey = potionKey;
     for (let t = 0; t < 40 && trapKey === potionKey; t++) {
       trapKey = candidates[rand(0, candidates.length - 1)];
     }
     if (trapKey === potionKey) continue;
-    map[`${trapKey}_trap`] = makeHiddenTrap();
+    setTrapAtKey(trapKey, makeHiddenTrap());
     hiddenTrapCount++;
 
     hiddenArea = {
@@ -667,7 +732,7 @@ function spawnMouse() {
 
 function triggerTrapAtEntity(x, y, target, targetKind = "player") {
   const key = `${x},${y}`;
-  const trap = map[`${key}_trap`];
+  const trap = trapAtKey(key);
   if (!trap) return false;
 
   const toughness = Number(target?.toughness || 0);
@@ -701,7 +766,7 @@ function triggerTrapAtEntity(x, y, target, targetKind = "player") {
   if (targetKind === "player") floorStats.trapsTriggered++;
 
   if (trap.hidden) hiddenTrapCount = Math.max(0, hiddenTrapCount - 1);
-  delete map[`${key}_trap`];
-  map[key] = ".";
+  clearTrapAtKey(key);
+  setTileAtKey(key, TILE.FLOOR);
   return true;
 }

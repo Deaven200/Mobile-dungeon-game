@@ -2,6 +2,7 @@
 
 function bindInputs() {
   const waitHold = { timeoutId: null, intervalId: null, pointerId: null, btn: null };
+  const mapPress = { pointerId: null, tx: null, ty: null, timeoutId: null, fired: false, startX: 0, startY: 0 };
 
   const stopWaitHold = () => {
     if (waitHold.timeoutId) window.clearTimeout(waitHold.timeoutId);
@@ -37,6 +38,7 @@ function bindInputs() {
       if (action === "menu") {
         stopWaitHold();
         if (inMainMenu) return;
+        playSound?.("menu");
         toggleMenu();
         return;
       }
@@ -167,6 +169,31 @@ function bindInputs() {
         return;
       }
 
+      // Long-press (touch) to Investigate without arming.
+      if (e.pointerType === "touch") {
+        // Clear any prior press.
+        if (mapPress.timeoutId) window.clearTimeout(mapPress.timeoutId);
+        mapPress.pointerId = e.pointerId;
+        mapPress.tx = tx;
+        mapPress.ty = ty;
+        mapPress.fired = false;
+        mapPress.startX = e.clientX;
+        mapPress.startY = e.clientY;
+        mapPress.timeoutId = window.setTimeout(() => {
+          if (menuOpen || gamePaused || inMainMenu) return;
+          if (pinch.active) return;
+          // If finger drifted a lot, don't treat as long-press.
+          const cur = touchPointers.get(e.pointerId);
+          const cx = cur?.x ?? mapPress.startX;
+          const cy = cur?.y ?? mapPress.startY;
+          if (Math.hypot(cx - mapPress.startX, cy - mapPress.startY) > 12) return;
+          mapPress.fired = true;
+          investigateAt(mapPress.tx, mapPress.ty);
+        }, 450);
+        return;
+      }
+
+      // Mouse / pen: immediate.
       startAutoMoveTo(tx, ty);
     });
 
@@ -175,6 +202,14 @@ function bindInputs() {
       if (!touchPointers.has(e.pointerId)) return;
 
       touchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      // Cancel long-press investigate if finger drifts.
+      if (mapPress.pointerId === e.pointerId && mapPress.timeoutId && !mapPress.fired) {
+        if (Math.hypot(e.clientX - mapPress.startX, e.clientY - mapPress.startY) > 12) {
+          window.clearTimeout(mapPress.timeoutId);
+          mapPress.timeoutId = null;
+        }
+      }
 
       if (touchPointers.size !== 2) return;
       if (!pinch.active) {
@@ -198,6 +233,23 @@ function bindInputs() {
 
     const endTouch = (e) => {
       if (e.pointerType !== "touch") return;
+
+      // If this touch was a tap and long-press didn't fire, treat as tap-to-move on release.
+      if (mapPress.pointerId === e.pointerId) {
+        if (mapPress.timeoutId) window.clearTimeout(mapPress.timeoutId);
+        const fired = !!mapPress.fired;
+        const tx = mapPress.tx;
+        const ty = mapPress.ty;
+        mapPress.pointerId = null;
+        mapPress.tx = null;
+        mapPress.ty = null;
+        mapPress.timeoutId = null;
+        mapPress.fired = false;
+        if (!fired && Number.isFinite(tx) && Number.isFinite(ty) && !pinch.active) {
+          startAutoMoveTo(tx, ty);
+        }
+      }
+
       touchPointers.delete(e.pointerId);
       if (touchPointers.size < 2) pinch.active = false;
     };
@@ -265,6 +317,9 @@ function bindInputs() {
       } catch {
         // ignore
       }
+
+      // Apply accessibility changes immediately.
+      window.applyAccessibilitySettings?.();
 
       if (settings.autoSave && key !== "autoSave") {
         setTimeout(() => saveGame("Auto-save"), 100);

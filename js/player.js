@@ -1,17 +1,66 @@
 /* ===================== PLAYER ===================== */
 
+function handlePlayerDeathIfNeeded() {
+  if (player.hp > 0) return false;
+
+  addLog("You died", "death");
+  playSound?.("death");
+
+  // Save high score before returning to menu
+  const highScore = localStorage.getItem("dungeonHighScore") || 0;
+  if (player.score > Number(highScore)) {
+    localStorage.setItem("dungeonHighScore", player.score);
+    addLog(`NEW HIGH SCORE: ${player.score}!`, "loot");
+  }
+
+  // Return to main menu after a brief delay
+  setTimeout(() => {
+    returnToMainMenu();
+  }, 2000);
+  return true;
+}
+
+function endPlayerTurn() {
+  moveMouse();
+  moveEnemies();
+  tickStatusEffects(player, "player");
+
+  // Hunger-based regeneration when out of combat
+  tickHungerRegeneration();
+
+  if (handlePlayerDeathIfNeeded()) return;
+  draw();
+}
+
 function waitTurn() {
   if (gamePaused) return;
 
   // Waiting should cancel any auto-walk.
   stopAutoMove();
 
+  // Campfire rest (gentle sustain, reduces hunger pressure).
+  const hereKey = keyOf(player.x, player.y);
+  const hereTile = tileAtKey(hereKey);
+  const enemyAdjacent = enemies.some((e) => Math.max(Math.abs(e.x - player.x), Math.abs(e.y - player.y)) <= 1);
+  if (hereTile === TILE.CAMPFIRE && !enemyAdjacent) {
+    // Small regen and a tiny hunger restoration.
+    const oldHp = player.hp;
+    player.hp = Math.min(player.maxHp, player.hp + 0.25);
+    player.hunger = Math.min(player.maxHunger, player.hunger + 0.2);
+    // Reduce burning a bit faster at the campfire.
+    const burning = player.statusEffects?.burning;
+    if (burning?.turns) burning.turns = Math.max(0, burning.turns - 1);
+    if (player.hp > oldHp) addLog("You rest by the campfire (+hp)", "loot");
+    // Resting costs less hunger than normal movement.
+    tickHunger(HUNGER_COST_MOVE * 0.25);
+  } else {
   // Hunger cost for spending a turn.
   tickHunger(HUNGER_COST_MOVE);
+  }
 
   // If we're standing on a trapdoor, allow descending prompt (same as moving onto it).
-  const currentTile = map[keyOf(player.x, player.y)] || "#";
-  if (currentTile === "T" && !enemies.some((e) => e.x === player.x && e.y === player.y)) {
+  const currentTile = tileAt(player.x, player.y);
+  if (currentTile === TILE.TRAPDOOR && !enemies.some((e) => e.x === player.x && e.y === player.y)) {
     showFloorTransition();
     return;
   }
@@ -22,31 +71,7 @@ function waitTurn() {
     openShopMenu();
     return;
   }
-
-  moveMouse();
-  moveEnemies();
-  tickStatusEffects(player, "player");
-
-  // Hunger-based regeneration when out of combat
-  tickHungerRegeneration();
-
-  if (player.hp <= 0) {
-    addLog("You died", "death");
-    // Save high score before returning to menu
-    const highScore = localStorage.getItem("dungeonHighScore") || 0;
-    if (player.score > Number(highScore)) {
-      localStorage.setItem("dungeonHighScore", player.score);
-      addLog(`NEW HIGH SCORE: ${player.score}!`, "loot");
-    }
-
-    // Return to main menu after a brief delay
-    setTimeout(() => {
-      returnToMainMenu();
-    }, 2000);
-    return;
-  }
-
-  draw();
+  endPlayerTurn();
 }
 
 function move(dx, dy) {
@@ -55,8 +80,11 @@ function move(dx, dy) {
   const nx = player.x + dx;
   const ny = player.y + dy;
   const nKey = keyOf(nx, ny);
-  const tile = map[nKey] || "#";
+  const tile = tileAtKey(nKey);
   const enemy = enemies.find((e) => e.x === nx && e.y === ny);
+
+  // Optional rule: disallow diagonal melee attacks.
+  if (enemy && dx && dy && settings?.diagonalMelee === false) return;
 
   // Diagonal movement: prevent squeezing through corners.
   if (dx && dy) {
@@ -76,7 +104,7 @@ function move(dx, dy) {
     } else {
       return;
     }
-  } else if (tile === "#") {
+  } else if (tile === TILE.WALL) {
     return;
   }
 
@@ -89,11 +117,14 @@ function move(dx, dy) {
     if (miss) {
       dealt = 0;
       addLog(`You miss ${(enemy?.name || "enemy").toLowerCase()}!`, "block");
+      playSound?.("miss");
     } else if (crit && dealt > 0) {
       dealt = Math.floor(dealt * 2);
       addLog(`CRITICAL HIT! ${dealt} damage to ${(enemy?.name || "enemy").toLowerCase()}!`, "player");
+      playSound?.("crit");
     } else {
       addLog(`You hit ${(enemy?.name || "enemy").toLowerCase()} for ${dealt}`, dealt ? "player" : "block");
+      if (dealt > 0) playSound?.("hit");
     }
     
     enemy.hp -= dealt;
@@ -102,12 +133,23 @@ function move(dx, dy) {
     if (dealt > 0) {
       showDamageNumber(enemy.x, enemy.y, dealt, crit ? "crit" : "player");
       floorStats.damageDealt += dealt;
+      lastTarget = {
+        name: enemy?.name || "Enemy",
+        hp: enemy.hp,
+        maxHp: typeof enemy.maxHp === "number" ? enemy.maxHp : undefined,
+        x: enemy.x,
+        y: enemy.y,
+        time: Date.now(),
+      };
     }
 
     if (enemy.hp <= 0) {
-      const enemyValue = Math.max(1, (enemy.hp + dealt)); // Use original HP before death
+      const enemyValue = Math.max(1, enemy.hp + dealt); // original HP before death
       addLog(`${enemy?.name || "Enemy"} dies`, "death");
+      playSound?.("loot");
       enemies = enemies.filter((e) => e !== enemy);
+      floorStats.enemiesKilled = (floorStats.enemiesKilled || 0) + 1;
+      lastTarget = null;
       
       // Combo system
       player.kills++;
@@ -124,15 +166,16 @@ function move(dx, dy) {
       else if (player.combo > 0 && player.combo % 5 === 0) addLog(`${player.combo} kills!`, "loot");
 
       // Rat meat drop (rats only).
-      if ((enemy?.name || "").toLowerCase().includes("rat") && rollChance(0.2) && !map[`${nx},${ny}_loot`]) {
-        map[`${nx},${ny}`] = RAT_MEAT.symbol;
-        map[`${nx},${ny}_loot`] = RAT_MEAT;
+      const deathKey = keyOf(nx, ny);
+      if ((enemy?.name || "").toLowerCase().includes("rat") && rollChance(0.2) && !lootAtKey(deathKey)) {
+        setTileAtKey(deathKey, RAT_MEAT.symbol);
+        setLootAtKey(deathKey, RAT_MEAT);
         addLog("Rat dropped meat", "loot");
       } else if (rollChance(0.05) || (player.combo >= 3 && rollChance(0.15))) {
         // Better drop rate on combo
         const p = POTIONS[rand(0, POTIONS.length - 1)];
-        map[`${nx},${ny}`] = "P";
-        map[`${nx},${ny}_loot`] = p;
+        setTileAtKey(deathKey, TILE.POTION);
+        setLootAtKey(deathKey, p);
         addLog(`${enemy?.name || "Enemy"} dropped a potion`, "loot");
       }
     } else {
@@ -166,21 +209,22 @@ function move(dx, dy) {
   triggerTrapAtEntity(player.x, player.y, player, "player");
 
   // Only pick up loot from the tile you are actually standing on.
-  const pKey = `${player.x},${player.y}`;
-  if (map[`${pKey}_loot`]) {
-    const loot = map[`${pKey}_loot`];
+  const pKey = keyOf(player.x, player.y);
+  const loot = lootAtKey(pKey);
+  if (loot) {
     player.inventory.push(loot);
     const lootName = loot?.name || "item";
     addLog(`Picked up ${lootName}`, "loot");
+    playSound?.("loot");
     vibrate(10);
     floorStats.itemsFound++;
-    delete map[`${pKey}_loot`];
-    map[pKey] = ".";
+    clearLootAtKey(pKey);
+    setTileAtKey(pKey, TILE.FLOOR);
   }
 
   // Check if we're standing on a trapdoor (either just moved onto it, or killed enemy on it)
-  const currentTile = map[keyOf(player.x, player.y)] || "#";
-  if (currentTile === "T" && !enemies.some((e) => e.x === player.x && e.y === player.y)) {
+  const currentTile = tileAt(player.x, player.y);
+  if (currentTile === TILE.TRAPDOOR && !enemies.some((e) => e.x === player.x && e.y === player.y)) {
     showFloorTransition();
     return;
   }
@@ -191,29 +235,5 @@ function move(dx, dy) {
     openShopMenu();
     return;
   }
-
-  moveMouse();
-  moveEnemies();
-  tickStatusEffects(player, "player");
-  
-  // Hunger-based regeneration when out of combat
-  tickHungerRegeneration();
-
-  if (player.hp <= 0) {
-    addLog("You died", "death");
-    // Save high score before returning to menu
-    const highScore = localStorage.getItem("dungeonHighScore") || 0;
-    if (player.score > Number(highScore)) {
-      localStorage.setItem("dungeonHighScore", player.score);
-      addLog(`NEW HIGH SCORE: ${player.score}!`, "loot");
-    }
-    
-    // Return to main menu after a brief delay
-    setTimeout(() => {
-      returnToMainMenu();
-    }, 2000);
-    return;
-  }
-
-  draw();
+  endPlayerTurn();
 }

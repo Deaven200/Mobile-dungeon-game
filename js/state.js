@@ -19,6 +19,12 @@ let settings = {
   autoSave: true,
   haptics: true,
   confirmDescend: true,
+  // Accessibility
+  largeText: false,
+  highContrast: false,
+  reducedMotion: false,
+  reducedFlashing: false,
+  diagonalMelee: true,
 };
 let floorStats = { enemiesKilled: 0, itemsFound: 0, trapsTriggered: 0, damageTaken: 0, damageDealt: 0 };
 let hiddenTrapCount = 0;
@@ -47,6 +53,7 @@ let liveLogs = [];
 
 // Fog-of-war: tiles you've seen stay visible (terrain only) when zoomed out.
 let explored = new Set(); // Set<string> of "x,y"
+let visibleNow = new Set(); // Set<string> of "x,y" currently visible (line-of-sight)
 
 // Pinch zoom: changes how many tiles are drawn (zoom out => more tiles).
 let zoomScale = 1;
@@ -76,6 +83,7 @@ let hiddenArea = null; // { revealed, tiles:Set<string>, falseWalls:Set<string>,
 let mouse = null; // { x, y }
 let autoMove = { timerId: null, path: [], attackTarget: null };
 let damageNumbers = []; // { x, y, value, type, time }
+let lastTarget = null; // { name, hp, maxHp, x, y, time }
 
 const gameEl = document.getElementById("game");
 const controlsEl = document.getElementById("controls");
