@@ -325,6 +325,7 @@ function bindInputs() {
       }
       if (btn.dataset.selectInv != null) {
         menuSelectedInvIid = String(btn.dataset.selectInv || "");
+        menuInvAssignOpen = false;
         playSound?.("menu");
         draw();
         return;
@@ -381,6 +382,18 @@ function bindInputs() {
         return;
       }
 
+      if (btn.dataset.dropItem != null) {
+        dropInventoryItem?.(Number(btn.dataset.dropItem));
+        return;
+      }
+
+      if (btn.dataset.openAssignHotbar != null) {
+        menuInvAssignOpen = !menuInvAssignOpen;
+        playSound?.("menu");
+        draw();
+        return;
+      }
+
       if (btn.dataset.cookFood != null) {
         cookFood(Number(btn.dataset.cookFood));
         return;
@@ -434,6 +447,7 @@ function bindInputs() {
         const parts = String(btn.dataset.assignHotbar).split(":");
         const slot = Number(parts[0]);
         const idx = Number(parts[1]);
+        menuInvAssignOpen = false;
         assignHotbarSlot(slot, idx);
         return;
       }

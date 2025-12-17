@@ -647,6 +647,71 @@ body.in-main-menu #liveLog {
   margin-bottom: 10px;
 }
 
+/* Simple inventory: 2-column grid + action menu */
+.inv-layout.inv-layout-simple {
+  grid-template-columns: 1fr;
+}
+
+.inv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 42dvh;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px;
+}
+
+.inv-slot {
+  width: 100%;
+  text-align: left;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.6);
+  padding: 10px;
+  cursor: pointer;
+  font-family: monospace;
+}
+
+.inv-slot.is-active {
+  border-color: rgba(0, 255, 255, 0.65);
+  box-shadow: 0 0 12px rgba(0, 255, 255, 0.18);
+  background: rgba(0, 255, 255, 0.08);
+}
+
+.inv-slot-name {
+  font-weight: 800;
+  font-size: clamp(14px, 3.7vw, 16px);
+  line-height: 1.15;
+}
+
+.inv-slot-meta {
+  margin-top: 4px;
+  opacity: 0.84;
+  font-size: clamp(12px, 3.2vw, 13px);
+  line-height: 1.25;
+}
+
+.inv-action-menu {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.inv-action-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--accent);
+  font-family: monospace;
+  font-size: clamp(13px, 3.4vw, 15px);
+  line-height: 1.1;
+  text-align: center;
+}
+
 .inv-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1195,11 +1260,18 @@ body.in-main-menu #liveLog {
     grid-template-columns: 1.05fr 0.95fr;
     gap: 12px;
   }
+  .inv-layout.inv-layout-simple {
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 12px;
+  }
   .inv-equip-grid {
     grid-template-columns: 1fr 1fr;
   }
   .inv-list,
   .inv-details {
+    max-height: 52dvh;
+  }
+  .inv-grid {
     max-height: 52dvh;
   }
 

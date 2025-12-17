@@ -1073,6 +1073,11 @@ function triggerTrapAtEntity(x, y, target, targetKind = "player") {
   if (target && typeof target.hp === "number") target.hp -= dmg;
   if (targetKind === "player" && dmg > 0) {
     try {
+      stopAutoMove?.();
+    } catch {
+      // ignore
+    }
+    try {
       setLastDamageSource({
         kind: "trap",
         name: trap.hidden ? `Hidden ${trap.type} trap` : `${trap.type} trap`,
