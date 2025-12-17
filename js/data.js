@@ -14,9 +14,10 @@ const POTIONS = [
 const RARITIES = [
   { id: "trash", label: "Trash", outline: "#8e8e8e", mult: 0.8, weight: 52 },
   { id: "common", label: "Common", outline: "#cfd8dc", mult: 1.0, weight: 28 },
-  { id: "uncommon", label: "Uncommon", outline: "#4caf50", mult: 1.25, weight: 14 },
-  { id: "rare", label: "Rare", outline: "#2196f3", mult: 1.6, weight: 5 },
-  { id: "legendary", label: "Legendary", outline: "#ff9800", mult: 2.0, weight: 1 },
+  { id: "uncommon", label: "Uncommon", outline: "#4caf50", mult: 2.0, weight: 14 },
+  { id: "rare", label: "Rare", outline: "#2196f3", mult: 3.5, weight: 5 },
+  { id: "epic", label: "Epic", outline: "#b400ff", mult: 5.0, weight: 2 },
+  { id: "legendary", label: "Legendary", outline: "#ff9800", mult: 7.0, weight: 1 },
 ];
 
 function getRarity(rarityId) {
