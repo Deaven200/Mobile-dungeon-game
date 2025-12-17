@@ -607,7 +607,11 @@ function codexInc(section, key, n = 1) {
   const k = String(key || "");
   if (!s || !k) return;
   if (!player.codex[s]) player.codex[s] = {};
-  player.codex[s][k] = Math.max(0, Number(player.codex[s][k] || 0) + Number(n || 1));
+  const curRaw = Number(player.codex[s][k]);
+  const cur = Number.isFinite(curRaw) ? curRaw : 0;
+  const addRaw = Number(n);
+  const add = Number.isFinite(addRaw) ? addRaw : 0;
+  player.codex[s][k] = Math.max(0, cur + add);
 }
 
 function recordCodexEnemy(name) {
@@ -1220,6 +1224,12 @@ function updateHotbarUi() {
     }
     syncHotbar();
     const slots = Array.isArray(player.hotbar) ? player.hotbar : [null, null, null, null];
+    const rarityCss = (it) => {
+      const rid = String(it?.rarity || "");
+      const rar = (Array.isArray(RARITIES) ? RARITIES.find((r) => r.id === rid) : null) || null;
+      const c = rar?.outline;
+      return c ? `text-shadow: -1px 0 ${c}, 1px 0 ${c}, 0 -1px ${c}, 0 1px ${c}, 0 0 6px ${c};` : "";
+    };
     const btnHtml = (s) => {
       const iid = slots[s];
       const idx = iid ? findInventoryIndexById(iid) : -1;
@@ -1228,7 +1238,9 @@ function updateHotbarUi() {
       const qty = it && String(it.effect || "").toLowerCase() === "material" ? ` x${Math.max(1, Math.floor(Number(it.qty || 1)))}` : "";
       const label = it ? `${name}${qty}` : "Empty";
       const title = it ? `${label} (tap to use)` : "Empty (assign in Inventory)";
-      return `<button type="button" class="hotbar-btn ${it ? "" : "is-empty"}" data-hotbar-use="${s}" title="${escapeHtml(title)}">
+      const color = it?.color ? `color:${it.color};` : "";
+      const glow = it ? rarityCss(it) : "";
+      return `<button type="button" class="hotbar-btn ${it ? "" : "is-empty"}" data-hotbar-use="${s}" title="${escapeHtml(title)}" style="${color}${glow}">
         <span class="hb-num">${s + 1}</span>${escapeHtml(label)}
       </button>`;
     };

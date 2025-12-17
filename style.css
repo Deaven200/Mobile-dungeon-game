@@ -304,6 +304,33 @@ body {
   color: rgba(255, 255, 255, 0.8);
 }
 
+.mini-row {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.mini-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--accent);
+  font-size: 0.85em;
+  line-height: 1;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.mini-btn:active {
+  transform: translateY(1px);
+  background: rgba(0, 255, 255, 0.12);
+}
+
 .controls-buttons {
   display: flex;
   justify-content: center;

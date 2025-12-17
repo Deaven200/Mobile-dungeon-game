@@ -201,13 +201,13 @@ function renderMenuHtml() {
           const idx2 = typeof findInventoryIndexById === "function" && iid ? findInventoryIndexById(iid) : -1;
           const it2 = idx2 >= 0 ? player.inventory?.[idx2] : null;
           const nm = it2?.name ? String(it2.name) : "(empty)";
-          return `<button type="button" data-clear-hotbar="${s}" style="margin:2px 4px; padding:6px 10px; border-radius:10px; border:1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.55); color: rgba(255,255,255,0.9);" title="Tap to clear">
+          return `<button type="button" class="mini-btn" data-clear-hotbar="${s}" title="Tap to clear">
             ${s + 1}: ${escapeHtml(nm)}
           </button>`;
         };
         return `<div style="text-align:center; margin: 6px 0 10px;">
           <div style="opacity:0.85; margin-bottom: 4px;">Hotbar (tap a slot to clear)</div>
-          ${[0, 1, 2, 3].map(slotBtn).join("")}
+          <div class="mini-row">${[0, 1, 2, 3].map(slotBtn).join("")}</div>
           <div style="opacity:0.7; margin-top:4px; font-size:0.9em;">Assign from items below</div>
         </div>`;
       })();
@@ -234,15 +234,9 @@ function renderMenuHtml() {
       const consHtml = consumables.length
         ? `<div class="menu-status" style="margin: 6px 0 4px; opacity:0.9;">Consumables</div><div class="menu-inventory">${consumables
             .map(({ it, idx }) => {
-              const assign =
-                `<div style="display:flex; gap:4px; justify-content:center; margin-top:4px;">
-                  ${[0, 1, 2, 3]
-                    .map(
-                      (s) =>
-                        `<button type="button" data-assign-hotbar="${s}:${idx}" style="padding:4px 6px; border-radius:8px; border:1px solid rgba(0,255,255,0.3); background: rgba(0,0,0,0.6); color: var(--accent); font-size: 0.85em;">${s + 1}</button>`,
-                    )
-                    .join("")}
-                </div>`;
+              const assign = `<div class="mini-row">
+                ${[0, 1, 2, 3].map((s) => `<button type="button" class="mini-btn" data-assign-hotbar="${s}:${idx}">${s + 1}</button>`).join("")}
+              </div>`;
               return `<div style="display:flex; flex-direction:column; align-items:center;">${btn(it, idx)}${assign}</div>`;
             })
             .join("")}</div>`
@@ -461,7 +455,7 @@ function renderMenuHtml() {
       </div>
       <div style="opacity:0.9;">Reforge (+1 max damage)</div>
       <div style="opacity:0.8; margin-bottom: 6px;">Cost: ${goldCost} gold • Iron ${ironCost}${essCost ? ` • Dust ${essCost}` : ""}</div>
-      <button type="button" data-blacksmith-upgrade="1" class="menu-button" style="width: 100%; ${can ? "" : "opacity:0.5;"}">Reforge</button>
+      <button type="button" data-blacksmith-upgrade="1" style="width: 100%; padding: 12px 14px; border-radius: 12px; border: 2px solid rgba(0,255,255,0.35); background: rgba(0,0,0,0.75); color: var(--accent); ${can ? "" : "opacity:0.5;"}">Reforge</button>
       <div style="opacity:0.75; margin-top: 10px;">Materials: Iron ${ironHave} • Dust ${essHave}</div>
     </div>`;
   } else if (activeTab === "bounties") {
