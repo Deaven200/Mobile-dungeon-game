@@ -11,16 +11,84 @@ function canMouseMoveTo(x, y) {
   return ch === "." || ch === "T";
 }
 
+function buildMousePathBfs(startX, startY, goalX, goalY) {
+  const startKey = keyOf(startX, startY);
+  const goalKey = keyOf(goalX, goalY);
+  if (startKey === goalKey) return [];
+
+  const prev = new Map();
+  prev.set(startKey, null);
+  const q = [{ x: startX, y: startY }];
+  let qi = 0;
+
+  // Mouse movement is cardinal.
+  const dirs = [
+    { dx: 1, dy: 0 },
+    { dx: -1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: 0, dy: -1 },
+  ];
+
+  while (qi < q.length) {
+    const cur = q[qi++];
+    for (const d of dirs) {
+      const nx = cur.x + d.dx;
+      const ny = cur.y + d.dy;
+      const nk = keyOf(nx, ny);
+      if (prev.has(nk)) continue;
+      if (!canMouseMoveTo(nx, ny)) continue;
+
+      prev.set(nk, keyOf(cur.x, cur.y));
+      if (nk === goalKey) {
+        qi = q.length;
+        break;
+      }
+      q.push({ x: nx, y: ny });
+    }
+  }
+
+  if (!prev.has(goalKey)) return null;
+
+  const steps = [];
+  let curKey = goalKey;
+  while (curKey && curKey !== startKey) {
+    const parentKey = prev.get(curKey);
+    if (!parentKey) break;
+    const [cx, cy] = curKey.split(",").map(Number);
+    const [px, py] = parentKey.split(",").map(Number);
+    steps.push({ x: cx, y: cy, dx: cx - px, dy: cy - py });
+    curKey = parentKey;
+  }
+  steps.reverse();
+  return steps;
+}
+
 function moveMouse() {
   if (!mouse || !hiddenArea) return;
 
   // If the hidden area has already been revealed, the mouse just wanders.
-  const dist = Math.abs(player.x - mouse.x) + Math.abs(player.y - mouse.y);
+  const dist = chebDist(player.x, player.y, mouse.x, mouse.y);
   const panic = !hiddenArea.revealed && dist <= 6;
+  const hardPanic = !hiddenArea.revealed && dist <= 4;
 
   let next = null;
 
-  if (panic) {
+  if (hardPanic) {
+    // When the player is close, pathfind to the nearest false wall so we don't get stuck.
+    let best = null;
+    for (const k of hiddenArea.falseWalls || []) {
+      const [xs, ys] = k.split(",");
+      const tx = Number(xs);
+      const ty = Number(ys);
+      if (!Number.isFinite(tx) || !Number.isFinite(ty)) continue;
+      const path = buildMousePathBfs(mouse.x, mouse.y, tx, ty);
+      if (!path || !path.length) continue;
+      if (!best || path.length < best.path.length) best = { x: tx, y: ty, path };
+    }
+    if (best?.path?.length) {
+      next = { x: best.path[0].x, y: best.path[0].y };
+    }
+  } else if (panic) {
     // Run toward the closest false-wall entrance tile.
     let best = null;
     let bestD = Infinity;
