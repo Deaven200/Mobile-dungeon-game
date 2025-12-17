@@ -283,6 +283,11 @@ function moveEnemies() {
         if (dmg > 0) {
           player.hp -= dmg;
           try {
+            stopAutoMove?.();
+          } catch {
+            // ignore
+          }
+          try {
             setLastDamageSource({ kind: "enemy", name: eName, amount: dmg, floor, extra: { attack: "slam" } });
             shakeScreen?.(0.9, 140);
             flashGame?.("brightness(1.15) contrast(1.15) saturate(1.25)");
@@ -344,6 +349,11 @@ function moveEnemies() {
       const dmg = Math.max(0, Math.floor(Math.max(0, rolled - tough) * Math.max(0.1, Number(pb.dmgTakenMult || 1))));
       player.hp -= dmg;
       if (dmg > 0) {
+        try {
+          stopAutoMove?.();
+        } catch {
+          // ignore
+        }
         try {
           setLastDamageSource({ kind: "enemy", name: eName, amount: dmg, floor, extra: { crit: !!crit } });
           shakeScreen?.(crit ? 0.9 : 0.6, crit ? 150 : 110);

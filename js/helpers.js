@@ -416,6 +416,11 @@ function tickStatusEffects(target, targetKind = "player") {
       target.hp -= dmg;
       if (targetKind === "player") {
         try {
+          stopAutoMove?.();
+        } catch {
+          // ignore
+        }
+        try {
           setLastDamageSource({ kind: "status", name: "Burning", amount: dmg, floor });
           runStats.damageTaken = Math.max(0, Number(runStats.damageTaken || 0) + dmg);
         } catch {
@@ -436,6 +441,11 @@ function tickStatusEffects(target, targetKind = "player") {
     if (dmg > 0) {
       target.hp -= dmg;
       if (targetKind === "player") {
+        try {
+          stopAutoMove?.();
+        } catch {
+          // ignore
+        }
         try {
           setLastDamageSource({ kind: "status", name: "Poisoned", amount: dmg, floor });
           runStats.damageTaken = Math.max(0, Number(runStats.damageTaken || 0) + dmg);
@@ -682,6 +692,37 @@ function addItemToInventory(item, opts = {}) {
     } catch {
       // ignore
     }
+    return true;
+  }
+
+  // Stack food by signature to avoid inventory spam.
+  if (eff === "food") {
+    const inv = player.inventory || [];
+    const qty = Math.max(1, Math.floor(Number(item.qty || 1)));
+    const name = String(item.name || "");
+    const cooked = !!item.cooked;
+    const hunger = Math.max(0, Number(item.hunger || 0));
+    const heal = Math.max(0, Number(item.heal || 0));
+    const sig = `food|${name}|${cooked ? 1 : 0}|${hunger}|${heal}`;
+    const existing = inv.find((it) => {
+      if (!it) return false;
+      if (String(it.effect || "").toLowerCase() !== "food") return false;
+      const n2 = String(it.name || "");
+      const c2 = !!it.cooked;
+      const h2 = Math.max(0, Number(it.hunger || 0));
+      const he2 = Math.max(0, Number(it.heal || 0));
+      const sig2 = `food|${n2}|${c2 ? 1 : 0}|${h2}|${he2}`;
+      return sig2 === sig;
+    });
+    if (existing) {
+      existing.qty = Math.max(1, Math.floor(Number(existing.qty || 1))) + qty;
+      recordCodexItem(existing);
+      return true;
+    }
+    if (cap && inv.length >= cap) return false;
+    item.qty = qty;
+    inv.push(item);
+    recordCodexItem(item);
     return true;
   }
 
@@ -1248,7 +1289,7 @@ function updateHotbarUi() {
       const idx = iid ? findInventoryIndexById(iid) : -1;
       const it = idx >= 0 ? player.inventory?.[idx] : null;
       const name = it?.name ? String(it.name) : "Empty";
-      const qty = it && String(it.effect || "").toLowerCase() === "material" ? ` x${Math.max(1, Math.floor(Number(it.qty || 1)))}` : "";
+      const qty = it && Math.max(1, Math.floor(Number(it.qty || 1))) > 1 ? ` x${Math.max(1, Math.floor(Number(it.qty || 1)))}` : "";
       const label = it ? `${name}${qty}` : "Empty";
       const title = it ? `${label} (tap to use)` : "Empty (assign in Inventory)";
       const color = it?.color ? `color:${it.color};` : "";
@@ -1280,6 +1321,11 @@ function tickHunger(cost = 0) {
     // Starvation: small damage each turn while empty.
     player.hp -= 0.01;
     try {
+      stopAutoMove?.();
+    } catch {
+      // ignore
+    }
+    try {
       setLastDamageSource({ kind: "starvation", name: "Starvation", amount: 0.01, floor });
     } catch {
       // ignore
@@ -1291,6 +1337,22 @@ function tickHunger(cost = 0) {
     }
   }
 }
+
+function isPlayerNearCampfire() {
+  try {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const tx = Number(player?.x || 0) + dx;
+        const ty = Number(player?.y || 0) + dy;
+        if (tileAt(tx, ty) === TILE.CAMPFIRE) return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+window.isPlayerNearCampfire = isPlayerNearCampfire;
 
 function tickHungerRegeneration() {
   // If out of combat and missing health, regenerate using hunger
@@ -1502,7 +1564,9 @@ function sellInventoryItem(invIndex) {
     return;
   }
   player.gold = Math.max(0, Number(player.gold || 0) + v);
-  player.inventory.splice(idx, 1);
+  const q = Math.max(1, Math.floor(Number(it.qty || 1)));
+  if (q > 1) it.qty = q - 1;
+  else player.inventory.splice(idx, 1);
   try {
     runStats.goldEarned = Math.max(0, Number(runStats.goldEarned || 0) + v);
   } catch {
@@ -2566,6 +2630,13 @@ function toggleMenu() {
 
 function setTab(tab) {
   activeTab = tab;
+  if (String(tab || "") !== "inventory") {
+    try {
+      menuInvAssignOpen = false;
+    } catch {
+      // ignore
+    }
+  }
   draw();
 }
 

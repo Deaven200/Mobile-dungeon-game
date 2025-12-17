@@ -1,5 +1,23 @@
 /* ===================== INVENTORY ===================== */
 
+function consumeInventoryQty(invIndex, qty = 1) {
+  const idx = Number(invIndex);
+  const q = Math.max(1, Math.floor(Number(qty || 1)));
+  if (!Number.isFinite(idx)) return false;
+  const it = player.inventory?.[idx];
+  if (!it) return false;
+  const have = Math.max(1, Math.floor(Number(it.qty || 1)));
+  const left = have - q;
+  if (left > 0) it.qty = left;
+  else player.inventory.splice(idx, 1);
+  try {
+    syncHotbar?.();
+  } catch {
+    // ignore
+  }
+  return true;
+}
+
 function useInventoryItem(i) {
   const p = player.inventory[i];
   if (!p) return;
@@ -10,16 +28,16 @@ function useInventoryItem(i) {
     playSound?.("menu");
     return;
   }
-  // Weapons are equipped, not used.
+  // Weapons: treat "Use" as equip main hand (simple inventory UX).
   if (p.effect === "weapon") {
-    addLog("Weapons must be equipped (Inventory).", "info");
-    playSound?.("menu");
+    equipToHand?.("main", i);
     return;
   }
-  // Trinkets are equipped, not used.
+  // Trinkets: equip to first available slot (A then B), otherwise replace A.
   if (p.effect === "trinket") {
-    addLog("Trinkets must be equipped (Inventory).", "info");
-    playSound?.("menu");
+    const tr = player?.trinkets || { a: null, b: null };
+    const slot = tr?.a ? (tr?.b ? "a" : "b") : "a";
+    equipTrinketToSlot?.(slot, i);
     return;
   }
   // Materials are used by crafting/blacksmith, not consumed directly.
@@ -141,17 +159,13 @@ function useInventoryItem(i) {
     playSound?.("loot");
   }
 
-  player.inventory.splice(i, 1);
-  try {
-    syncHotbar?.();
-  } catch {
-    // ignore
-  }
+  consumeInventoryQty(i, 1);
   draw();
 }
 
 function cookFood(i) {
-  if (!cookingAtCampfire) return;
+  const near = typeof isPlayerNearCampfire === "function" ? isPlayerNearCampfire() : false;
+  if (!cookingAtCampfire && !near) return;
   const item = player.inventory[i];
   if (!item || item.effect !== "food") return;
   if (item.cooked) return;
@@ -170,7 +184,52 @@ function cookFood(i) {
     };
   }
 
-  player.inventory[i] = cooked;
+  const have = Math.max(1, Math.floor(Number(item.qty || 1)));
+  if (have > 1) {
+    // Consume 1 raw, add 1 cooked (stacks if possible).
+    item.qty = have - 1;
+    try {
+      addItemToInventory?.({ ...cooked, qty: 1, pickedAt: Date.now() });
+    } catch {
+      // If add fails for any reason, revert consumption.
+      item.qty = have;
+      return;
+    }
+  } else {
+    // Replace in-place, preserve iid for UI selection/hotbar references.
+    player.inventory[i] = { ...cooked, iid: item.iid, qty: 1, pickedAt: item.pickedAt || Date.now() };
+  }
   addLog(`Cooked ${item.name}`, "loot");
   draw();
 }
+
+function dropInventoryItem(invIndex) {
+  const idx = Number(invIndex);
+  if (!Number.isFinite(idx)) return;
+  const it = player.inventory?.[idx];
+  if (!it) return;
+
+  const pKey = keyOf(player.x, player.y);
+  if (lootAtKey(pKey)) {
+    addLog("There's already something here.", "block");
+    playSound?.("menu");
+    return;
+  }
+
+  const dropOne = { ...it };
+  dropOne.qty = 1;
+  delete dropOne.iid; // dropped items get a fresh iid when picked up again
+  dropOne.pickedAt = Date.now();
+
+  // Place loot.
+  setLootAtKey(pKey, dropOne);
+  const base = tileAtKey(pKey);
+  const canPaint = base === TILE.FLOOR || base === TILE.GRASS;
+  if (canPaint) setTileAtKey(pKey, dropOne.symbol || "?");
+
+  consumeInventoryQty(idx, 1);
+  addLog(`Dropped ${it.name || "item"}`, "info");
+  playSound?.("menu");
+  draw();
+}
+window.dropInventoryItem = dropInventoryItem;

@@ -115,309 +115,120 @@ function renderMenuHtml() {
 
   if (activeTab === "inventory") {
     const cap = Math.max(0, Number(player.maxInventory ?? 0));
-    const used = Array.isArray(player.inventory) ? player.inventory.length : 0;
-    let items = (Array.isArray(player.inventory) ? player.inventory : []).map((it, idx) => ({ it, idx }));
-    const sortMode = String(player.inventorySort || "type").toLowerCase();
-    const rarityRank = (rid) => {
-      const order = { trash: 0, common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 };
-      return order[String(rid || "").toLowerCase()] ?? 0;
+    const inv = Array.isArray(player.inventory) ? player.inventory : [];
+    const used = inv.length;
+
+    const displayName = (it) => {
+      if (!it) return "";
+      const nm = String(it.name || "Item");
+      const eff = String(it.effect || "").toLowerCase();
+      if (eff === "food" && !it.cooked) {
+        const low = nm.toLowerCase();
+        if (!low.startsWith("raw ") && !low.startsWith("cooked ")) return `Raw ${nm}`;
+      }
+      return nm;
     };
-    const stable = (cmp) => {
-      items = items
-        .map((x, i) => ({ ...x, _i: i }))
-        .sort((a, b) => {
-          const c = cmp(a, b);
-          return c || a._i - b._i;
-        })
-        .map(({ _i, ...rest }) => rest);
+    const valueGold = (it) =>
+      typeof getItemSellValue === "function" ? Math.max(0, Math.floor(Number(getItemSellValue(it) || 0))) : 0;
+    const metaLine = (it) => {
+      if (!it) return "";
+      const eff = String(it.effect || "").toLowerCase();
+      const v = valueGold(it);
+      if (eff === "food") {
+        const h = Math.max(0, Number(it.hunger || 0));
+        return `Food +${h} hunger / Value ${v} Gold`;
+      }
+      if (eff === "weapon") return `Weapon 0-${Number(it.maxDamage || 0)} / Value ${v} Gold`;
+      if (eff === "material") return `Material x${Math.max(1, Math.floor(Number(it.qty || 1)))} / Value ${v} Gold`;
+      if (eff === "valuable") return `Valuable / Value ${v} Gold`;
+      return `Item / Value ${v} Gold`;
     };
-    if (sortMode === "name") {
-      stable((a, b) => String(a.it?.name || "").localeCompare(String(b.it?.name || "")));
-    } else if (sortMode === "value") {
-      stable((a, b) => {
-        const av = typeof getItemSellValue === "function" ? Number(getItemSellValue(a.it) || 0) : 0;
-        const bv = typeof getItemSellValue === "function" ? Number(getItemSellValue(b.it) || 0) : 0;
-        return bv - av;
-      });
-    } else if (sortMode === "rarity") {
-      stable((a, b) => rarityRank(b.it?.rarity) - rarityRank(a.it?.rarity));
-    } else if (sortMode === "recent") {
-      stable((a, b) => Number(b.it?.pickedAt || 0) - Number(a.it?.pickedAt || 0));
-    } else {
-      // type (default): weapons, consumables, valuables, materials, then name
-      const typeRank = (it) => {
-        const eff = String(it?.effect || "").toLowerCase();
-        if (eff === "weapon") return 0;
-        if (eff === "trinket") return 1;
-        if (eff === "food" || eff === "fullheal" || eff === "damageboost" || eff === "toughnessboost" || eff === "speed" || eff === "invisibility" || eff === "explosive")
-          return 2;
-        if (eff === "valuable") return 3;
-        if (eff === "material") return 4;
-        return 5;
-      };
-      stable((a, b) => typeRank(a.it) - typeRank(b.it) || String(a.it?.name || "").localeCompare(String(b.it?.name || "")));
-    }
+    const qtyLabel = (it) => {
+      const q = Math.max(1, Math.floor(Number(it?.qty || 1)));
+      return q > 1 ? ` x${q}` : "";
+    };
+
+    const hasFind = typeof findInventoryIndexById === "function";
+    const resolveSelectedIndex = () => {
+      const wanted = String(menuSelectedInvIid || "");
+      if (wanted && hasFind) {
+        const idx = findInventoryIndexById(wanted);
+        if (idx >= 0) return idx;
+      }
+      if (inv?.[0]?.iid) menuSelectedInvIid = String(inv[0].iid);
+      return inv.length ? 0 : -1;
+    };
+    const selIdx = resolveSelectedIndex();
+    const selItem = selIdx >= 0 ? inv[selIdx] : null;
+
+    const header = `<div class="inv-header">
+      <div class="menu-status">Inventory: ${used}/${cap || "∞"}</div>
+    </div>`;
 
     if (!used) {
-      content = `<div class="menu-empty">Inventory empty (${used}/${cap || "∞"})</div>`;
+      content = `${header}<div class="menu-empty">Inventory empty (${used}/${cap || "∞"})</div>`;
     } else {
-      const mainHand = player?.hands?.main;
-      const offHand = player?.hands?.off;
-      const eqLine = (label, it, handKey) => {
-        if (!it) return `<div>${escapeHtml(label)}: <span style="opacity:0.7;">(empty)</span></div>`;
-        const meta = it?.effect === "weapon" ? ` 0-${Number(it?.maxDamage || 0)}` : "";
-        return `<div>${escapeHtml(label)}: <span style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}">${escapeHtml(it?.name || "Item")}${escapeHtml(
-          meta,
-        )}</span> <button type="button" data-unequip-hand="${escapeHtml(handKey)}" style="margin-left:8px;">Unequip</button></div>`;
-      };
+      const gridHtml = `<div class="inv-grid">${inv
+        .map((it, idx) => {
+          try {
+            ensureItemId?.(it);
+          } catch {
+            // ignore
+          }
+          const iid = String(it?.iid || "");
+          const active = selItem?.iid && iid && selItem.iid === iid;
+          return `<button type="button" class="inv-slot ${active ? "is-active" : ""}" data-select-inv="${escapeHtml(iid)}" title="${escapeHtml(
+            itemTitle(it),
+          )}">
+            <div class="inv-slot-name" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}">${escapeHtml(displayName(it))}${escapeHtml(
+            qtyLabel(it),
+          )}</div>
+            <div class="inv-slot-meta">${escapeHtml(metaLine(it))}</div>
+          </button>`;
+        })
+        .join("")}</div>`;
 
-      // --- New layout: Equipment header + filters + list/details split ---
-      const hotbarRow = (() => {
-        const slots = Array.isArray(player.hotbar) ? player.hotbar : [null, null, null, null];
-        const slotBtn = (s) => {
-          const iid = slots[s];
-          const idx2 = typeof findInventoryIndexById === "function" && iid ? findInventoryIndexById(iid) : -1;
-          const it2 = idx2 >= 0 ? player.inventory?.[idx2] : null;
-          const nm = it2?.name ? String(it2.name) : "(empty)";
-          return `<button type="button" class="inv-chip" data-clear-hotbar="${s}" title="Tap to clear">#${s + 1}: ${escapeHtml(nm)}</button>`;
-        };
-        return `<div class="inv-hotbar">
-          <div class="inv-section-title">Hotbar</div>
-          <div class="inv-chip-row">${[0, 1, 2, 3].map(slotBtn).join("")}</div>
-        </div>`;
-      })();
-
-      const sortBtn = (id, label) =>
-        `<button type="button" class="inv-chip ${sortMode === id ? "is-active" : ""}" data-sort-inv="${escapeHtml(id)}">${escapeHtml(
-          label,
-        )}</button>`;
-      const sortRow = `<div class="inv-sort">
-        <div class="inv-section-title">Sort</div>
-        <div class="inv-chip-row">
-          ${sortBtn("type", "Type")}
-          ${sortBtn("recent", "Recent")}
-          ${sortBtn("name", "Name")}
-          ${sortBtn("rarity", "Rarity")}
-          ${sortBtn("value", "Value")}
-        </div>
-      </div>`;
-
-      const effectKind = (it) => {
-        const eff = String(it?.effect || "").toLowerCase();
-        if (eff === "weapon") return "weapons";
-        if (eff === "trinket") return "trinkets";
-        if (eff === "material") return "materials";
-        if (eff === "valuable") return "valuables";
-        return "consumables";
-      };
-
-      const filter = String(menuInvFilter || "all").toLowerCase();
-      const filterBtn = (id, label) =>
-        `<button type="button" class="inv-pill ${filter === id ? "is-active" : ""}" data-inv-filter="${escapeHtml(id)}">${escapeHtml(
-          label,
-        )}</button>`;
-      const filterRow = `<div class="inv-filters">
-        ${filterBtn("all", "All")}
-        ${filterBtn("weapons", "Weapons")}
-        ${filterBtn("trinkets", "Trinkets")}
-        ${filterBtn("consumables", "Consumables")}
-        ${filterBtn("materials", "Materials")}
-        ${filterBtn("valuables", "Valuables")}
-      </div>`;
-
-      const filtered = filter === "all" ? items : items.filter(({ it }) => effectKind(it) === filter);
-
-      // Ensure selection points at a real, visible inventory item.
-      const hasFind = typeof findInventoryIndexById === "function";
-      const resolveSelectedIndex = () => {
-        if (!hasFind) return filtered?.[0]?.idx ?? -1;
-        const wanted = String(menuSelectedInvIid || "");
-        if (wanted) {
-          const idx = findInventoryIndexById(wanted);
-          if (idx >= 0 && (filter === "all" || effectKind(player.inventory?.[idx]) === filter)) return idx;
-        }
-        // Pick the first item in the filtered list.
-        const first = filtered?.[0]?.it;
-        if (first?.iid) menuSelectedInvIid = String(first.iid);
-        return filtered?.[0]?.idx ?? -1;
-      };
-      const selIdx = resolveSelectedIndex();
-      const selItem = selIdx >= 0 ? player.inventory?.[selIdx] : null;
-      if (selItem?.iid && !menuSelectedInvIid) menuSelectedInvIid = String(selItem.iid);
-
-      const rowMeta = (it) => {
-        const eff = String(it?.effect || "").toLowerCase();
-        if (eff === "weapon") return `Weapon • Lv ${Number(it?.level || 1)} • 0-${Number(it?.maxDamage || 0)}`;
-        if (eff === "food") return `Food • Hunger +${Number(it?.hunger || 0)}${Number(it?.heal || 0) ? ` • Heal +${Number(it?.heal || 0)}` : ""}${it?.cooked ? " • Cooked" : ""}`;
-        if (eff === "material") return `Material • x${Math.max(1, Math.floor(Number(it?.qty || 1)))}`;
-        if (eff === "valuable") return `Valuable • Worth ${Number(it?.value || 0)}g`;
-        // Potions/other
-        const sv = typeof getItemSellValue === "function" ? Math.max(0, Math.floor(Number(getItemSellValue(it) || 0))) : 0;
-        return `${eff ? eff[0].toUpperCase() + eff.slice(1) : "Item"}${sv ? ` • Sell ${sv}g` : ""}`;
-      };
-
-      const listRow = ({ it, idx }) => {
-        if (!it) return "";
-        try {
-          if (typeof ensureItemId === "function") ensureItemId(it);
-        } catch {
-          // ignore
-        }
-        const iid = String(it?.iid || "");
-        const active = selItem?.iid && iid && selItem.iid === iid;
-        const qty = String(it?.effect || "").toLowerCase() === "material" ? ` x${Math.max(1, Math.floor(Number(it?.qty || 1)))}` : "";
-        return `<button type="button" class="inv-row ${active ? "is-active" : ""}" data-select-inv="${escapeHtml(iid)}" title="${escapeHtml(
-          itemTitle(it),
-        )}">
-          <div class="inv-row-title" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}">
-            <span class="inv-row-badge">${escapeHtml(rarityBadge(it))}</span>
-            <span class="inv-row-name">${escapeHtml(it?.name || "Item")}</span>
-            ${qty ? `<span class="inv-row-qty">${escapeHtml(qty)}</span>` : ""}
-          </div>
-          <div class="inv-row-meta">${escapeHtml(rowMeta(it))}</div>
-        </button>`;
-      };
-
-      const listHtml =
-        filtered.length === 0
-          ? `<div class="menu-empty">No items in this filter</div>`
-          : `<div class="inv-list">${filtered.map(listRow).join("")}</div>`;
+      const nearFire = typeof isPlayerNearCampfire === "function" ? isPlayerNearCampfire() : false;
+      const canCook = !!(nearFire && selItem && String(selItem.effect || "").toLowerCase() === "food" && !selItem.cooked);
 
       const detailsHtml = (() => {
         if (!selItem) return `<div class="inv-details"><div class="menu-empty">Select an item</div></div>`;
-        const eff = String(selItem?.effect || "").toLowerCase();
         const title = `<div class="inv-details-title" style="color:${selItem?.color || "cyan"};${rarityOutlineCss(selItem)}">${escapeHtml(
-          `${rarityBadge(selItem)} ${selItem?.name || "Item"}`,
+          displayName(selItem),
         )}</div>`;
-        const desc = (() => {
-          const lines = [];
-          const rid = String(selItem?.rarity || "");
-          if (rid) lines.push(`Rarity: ${rid}`);
-          if (eff === "weapon") {
-            lines.push(`Level: ${Number(selItem?.level || 1)}`);
-            lines.push(`Damage: 0-${Number(selItem?.maxDamage || 0)}`);
-          } else if (eff === "food") {
-            lines.push(`Hunger: +${Number(selItem?.hunger || 0)}`);
-            if (Number(selItem?.heal || 0)) lines.push(`Heal: +${Number(selItem?.heal || 0)}`);
-            if (selItem?.cooked) lines.push("Cooked");
-          } else if (eff === "material") {
-            lines.push(`Quantity: ${Math.max(1, Math.floor(Number(selItem?.qty || 1)))}`);
-          } else if (eff === "valuable") {
-            lines.push(`Worth: ${Number(selItem?.value || 0)} gold`);
-          } else if (eff) {
-            lines.push(`Type: ${eff}`);
-          }
-          const sv = typeof getItemSellValue === "function" ? Math.max(0, Math.floor(Number(getItemSellValue(selItem) || 0))) : 0;
-          if (sv) lines.push(`Sell: ${sv} gold`);
-          const extra = String(selItem?.desc || selItem?.description || "").trim();
-          if (extra) lines.push(extra);
-          return `<div class="inv-details-body">${lines.map((l) => `<div>${escapeHtml(l)}</div>`).join("")}</div>`;
-        })();
+        const body = `<div class="inv-details-body">
+          <div>${escapeHtml(metaLine(selItem))}</div>
+        </div>`;
 
-        const canAssignHotbar = eff === "weapon" || (eff !== "valuable" && eff !== "material" && eff !== "trinket");
-        const assignRow = canAssignHotbar
-          ? `<div class="inv-actions">
-              <div class="inv-section-title">Assign to hotbar</div>
-              <div class="inv-chip-row">
-                ${[0, 1, 2, 3]
-                  .map((s) => `<button type="button" class="inv-chip" data-assign-hotbar="${s}:${selIdx}">#${s + 1}</button>`)
-                  .join("")}
-              </div>
+        const assignSlots = menuInvAssignOpen
+          ? `<div class="inv-assign">
+              <div class="inv-chip-row">${[0, 1, 2, 3]
+                .map((s) => `<button type="button" class="inv-chip" data-assign-hotbar="${s}:${selIdx}">#${s + 1}</button>`)
+                .join("")}</div>
             </div>`
           : "";
 
-        const actions = (() => {
-          if (eff === "weapon") {
-            return `<div class="inv-actions">
-              <div class="inv-section-title">Actions</div>
-              <div class="inv-chip-row">
-                <button type="button" class="inv-chip" data-equip-main="${selIdx}">Equip main hand</button>
-                <button type="button" class="inv-chip" data-equip-off="${selIdx}">Equip off hand</button>
-              </div>
-            </div>`;
-          }
-          if (eff === "trinket") {
-            return `<div class="inv-actions">
-              <div class="inv-section-title">Actions</div>
-              <div class="inv-chip-row">
-                <button type="button" class="inv-chip" data-equip-trinket-a="${selIdx}">Equip slot A</button>
-                <button type="button" class="inv-chip" data-equip-trinket-b="${selIdx}">Equip slot B</button>
-              </div>
-            </div>`;
-          }
-          if (eff === "material") {
-            return `<div class="inv-actions"><div class="menu-empty">Used at the Blacksmith</div></div>`;
-          }
-          if (eff === "valuable") {
-            const canSell = !!atShop && typeof getItemSellValue === "function" && getItemSellValue(selItem) > 0;
-            return `<div class="inv-actions">
-              <div class="inv-section-title">Actions</div>
-              <div class="inv-chip-row">
-                ${
-                  canSell
-                    ? `<button type="button" class="inv-chip" data-sell-item="${selIdx}">Sell</button>`
-                    : `<span class="inv-hint">Sell at a shop</span>`
-                }
-              </div>
-            </div>`;
-          }
-          // Default: consumable/potion/food/etc.
-          return `<div class="inv-actions">
-            <div class="inv-section-title">Actions</div>
-            <div class="inv-chip-row">
-              <button type="button" class="inv-chip" data-use-item="${selIdx}">Use</button>
-            </div>
-          </div>`;
-        })();
-
-        return `<div class="inv-details">
-          ${title}
-          ${desc}
-          ${actions}
-          ${assignRow}
+        const actions = `<div class="inv-actions">
+          <div class="inv-section-title">Actions</div>
+          <div class="inv-action-menu">
+            <button type="button" class="inv-action-btn" data-use-item="${selIdx}">Use</button>
+            <button type="button" class="inv-action-btn" data-open-assign-hotbar="1">Assign to hotbar</button>
+            <button type="button" class="inv-action-btn" data-drop-item="${selIdx}">Drop</button>
+            ${canCook ? `<button type="button" class="inv-action-btn" data-cook-food="${selIdx}">Cook</button>` : ""}
+          </div>
+          ${assignSlots}
         </div>`;
+
+        return `<div class="inv-details">${title}${body}${actions}</div>`;
       })();
 
-      const equipTop = `<div class="inv-equipment">
-        <div class="inv-section-title">Equipment</div>
-        <div class="inv-equip-grid">
-          <div class="inv-equip-card">
-            <div class="inv-equip-title">Hands</div>
-            ${eqLine("Main", mainHand, "main")}
-            ${eqLine("Off", offHand, "off")}
-          </div>
-          <div class="inv-equip-card">
-            <div class="inv-equip-title">Trinkets</div>
-            ${(() => {
-              const tr = player?.trinkets || { a: null, b: null };
-              const line = (label, it, slot) => {
-                if (!it) return `<div>${escapeHtml(label)}: <span style="opacity:0.7;">(empty)</span></div>`;
-                return `<div>${escapeHtml(label)}: <span style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}">${escapeHtml(
-                  `${rarityBadge(it)} ${it?.name || "Trinket"}`,
-                )}</span> <button type="button" data-unequip-trinket="${escapeHtml(slot)}" style="margin-left:8px;">Unequip</button></div>`;
-              };
-              return `${line("A", tr.a, "a")}${line("B", tr.b, "b")}`;
-            })()}
-          </div>
-        </div>
-      </div>`;
-
-      const header = `<div class="inv-header">
-        <div class="menu-status">Inventory: ${used}/${cap || "∞"}</div>
-        ${filterRow}
-        <div class="inv-rows">
-          ${sortRow}
-          ${hotbarRow}
-        </div>
-      </div>`;
-
-      content = `${header}${equipTop}<div class="inv-layout">
+      content = `${header}<div class="inv-layout inv-layout-simple">
         <div class="inv-pane">
           <div class="inv-section-title">Items</div>
-          ${listHtml}
+          ${gridHtml}
         </div>
         <div class="inv-pane">
-          <div class="inv-section-title">Details</div>
+          <div class="inv-section-title">Menu</div>
           ${detailsHtml}
         </div>
       </div>`;
