@@ -324,7 +324,19 @@ function bindInputs() {
         return;
       }
       if (btn.dataset.selectInv != null) {
-        menuSelectedInvIid = String(btn.dataset.selectInv || "");
+        const iid = String(btn.dataset.selectInv || "");
+        const same = String(menuSelectedInvIid || "") === iid;
+        menuSelectedInvIid = iid;
+        // Toggle overlay if you tap the same item; otherwise open it.
+        menuInvActionOpen = same ? !menuInvActionOpen : true;
+        if (!menuInvActionOpen) menuInvAssignOpen = false;
+        else menuInvAssignOpen = false;
+        playSound?.("menu");
+        draw();
+        return;
+      }
+      if (btn.dataset.invOverlayClose != null) {
+        menuInvActionOpen = false;
         menuInvAssignOpen = false;
         playSound?.("menu");
         draw();
@@ -378,16 +390,21 @@ function bindInputs() {
       }
 
       if (btn.dataset.useItem != null) {
+        menuInvActionOpen = false;
+        menuInvAssignOpen = false;
         useInventoryItem(Number(btn.dataset.useItem));
         return;
       }
 
       if (btn.dataset.dropItem != null) {
+        menuInvActionOpen = false;
+        menuInvAssignOpen = false;
         dropInventoryItem?.(Number(btn.dataset.dropItem));
         return;
       }
 
       if (btn.dataset.openAssignHotbar != null) {
+        // Overlay stays open; this only toggles the submenu inside it.
         menuInvAssignOpen = !menuInvAssignOpen;
         playSound?.("menu");
         draw();
@@ -395,6 +412,8 @@ function bindInputs() {
       }
 
       if (btn.dataset.cookFood != null) {
+        menuInvActionOpen = false;
+        menuInvAssignOpen = false;
         cookFood(Number(btn.dataset.cookFood));
         return;
       }
@@ -448,6 +467,7 @@ function bindInputs() {
         const slot = Number(parts[0]);
         const idx = Number(parts[1]);
         menuInvAssignOpen = false;
+        menuInvActionOpen = false;
         assignHotbarSlot(slot, idx);
         return;
       }

@@ -7,6 +7,7 @@ let activeTab = "inventory";
 let menuInvFilter = "all"; // all | weapons | trinkets | consumables | materials | valuables
 let menuSelectedInvIid = null; // item iid (string) for inventory details pane
 let menuInvAssignOpen = false; // whether "assign to hotbar" submenu is expanded
+let menuInvActionOpen = false; // whether the inventory action overlay is visible
 // Codex UI state (not saved; purely presentation).
 let menuCodexSection = "items"; // enemies | items | trinkets | materials | statuses
 let menuCodexSort = "name"; // name | count

@@ -1392,6 +1392,13 @@ function setMenuOpen(open) {
     atBountyBoard = false;
     atShrine = false;
     shrineKey = null;
+    // Reset in-menu inventory submenus when closing the menu.
+    try {
+      menuInvAssignOpen = false;
+      menuInvActionOpen = false;
+    } catch {
+      // ignore
+    }
   }
 
   document.body.classList.toggle("menu-open", open);
@@ -2633,6 +2640,7 @@ function setTab(tab) {
   if (String(tab || "") !== "inventory") {
     try {
       menuInvAssignOpen = false;
+      menuInvActionOpen = false;
     } catch {
       // ignore
     }

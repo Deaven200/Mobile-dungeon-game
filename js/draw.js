@@ -191,16 +191,11 @@ function renderMenuHtml() {
       const nearFire = typeof isPlayerNearCampfire === "function" ? isPlayerNearCampfire() : false;
       const canCook = !!(nearFire && selItem && String(selItem.effect || "").toLowerCase() === "food" && !selItem.cooked);
 
-      const detailsHtml = (() => {
-        if (!selItem) return `<div class="inv-details"><div class="menu-empty">Select an item</div></div>`;
-        const title = `<div class="inv-details-title" style="color:${selItem?.color || "cyan"};${rarityOutlineCss(selItem)}">${escapeHtml(
-          displayName(selItem),
-        )}</div>`;
-        const body = `<div class="inv-details-body">
-          <div>${escapeHtml(metaLine(selItem))}</div>
-        </div>`;
+      const overlayOpen = !!(menuInvActionOpen && selItem);
+      const overlaySideClass = selIdx % 2 === 0 ? "" : " is-left"; // click left column -> overlay covers right column
 
-        const assignSlots = menuInvAssignOpen
+      const assignSlots =
+        overlayOpen && menuInvAssignOpen
           ? `<div class="inv-assign">
               <div class="inv-chip-row">${[0, 1, 2, 3]
                 .map((s) => `<button type="button" class="inv-chip" data-assign-hotbar="${s}:${selIdx}">#${s + 1}</button>`)
@@ -208,28 +203,32 @@ function renderMenuHtml() {
             </div>`
           : "";
 
-        const actions = `<div class="inv-actions">
-          <div class="inv-section-title">Actions</div>
-          <div class="inv-action-menu">
-            <button type="button" class="inv-action-btn" data-use-item="${selIdx}">Use</button>
-            <button type="button" class="inv-action-btn" data-open-assign-hotbar="1">Assign to hotbar</button>
-            <button type="button" class="inv-action-btn" data-drop-item="${selIdx}">Drop</button>
-            ${canCook ? `<button type="button" class="inv-action-btn" data-cook-food="${selIdx}">Cook</button>` : ""}
-          </div>
-          ${assignSlots}
-        </div>`;
+      const overlayHtml = overlayOpen
+        ? `<div class="inv-overlay${overlaySideClass}">
+            <div class="inv-overlay-top">
+              <div class="inv-overlay-title" style="color:${selItem?.color || "cyan"};${rarityOutlineCss(selItem)}">${escapeHtml(
+                displayName(selItem),
+              )}</div>
+              <button type="button" class="inv-overlay-close" data-inv-overlay-close="1" aria-label="Close">✕</button>
+            </div>
+            <div class="inv-overlay-body">
+              <div class="inv-overlay-meta">${escapeHtml(metaLine(selItem))}</div>
+              <div class="inv-overlay-actions">
+                <button type="button" class="inv-action-btn" data-use-item="${selIdx}">Use</button>
+                <button type="button" class="inv-action-btn" data-open-assign-hotbar="1">Assign to hotbar</button>
+                <button type="button" class="inv-action-btn" data-drop-item="${selIdx}">Drop</button>
+                ${canCook ? `<button type="button" class="inv-action-btn" data-cook-food="${selIdx}">Cook</button>` : ""}
+              </div>
+              ${assignSlots}
+            </div>
+          </div>`
+        : "";
 
-        return `<div class="inv-details">${title}${body}${actions}</div>`;
-      })();
-
-      content = `${header}<div class="inv-layout inv-layout-simple">
-        <div class="inv-pane">
-          <div class="inv-section-title">Items</div>
+      content = `${header}<div class="inv-pane inv-pane-inventory">
+        <div class="inv-section-title">Items</div>
+        <div class="inv-grid-wrap ${overlayOpen ? "is-overlay-open" : ""}">
+          ${overlayHtml}
           ${gridHtml}
-        </div>
-        <div class="inv-pane">
-          <div class="inv-section-title">Menu</div>
-          ${detailsHtml}
         </div>
       </div>`;
     }
