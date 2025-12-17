@@ -281,12 +281,13 @@ button.investigate-button.is-armed {
 
 /* ===== WAIT BUTTON ===== */
 button.wait-button {
-  border-color: #00ff66;
-  color: #00ff66;
+  /* sand */
+  border-color: #d2b48c;
+  color: #d2b48c;
 }
 
 button.wait-button.is-holding {
-  background: rgba(0, 255, 102, 0.18);
+  background: rgba(210, 180, 140, 0.18);
 }
 
 /* ===== MENU ===== */
