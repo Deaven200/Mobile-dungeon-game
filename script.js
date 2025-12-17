@@ -367,26 +367,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (targetKind === "player") addLog("Slowness faded", "info");
       }
     }
-    
-    // Regeneration (for potions)
-    if (status.regeneration?.turns) {
-      const regen = status.regeneration;
-      regen.turns -= 1;
-      if (regen.turns <= 0) {
-        delete target.statusEffects.regeneration;
-        if (targetKind === "player") addLog("Regeneration faded", "info");
-      }
-    }
-    
-    // Regeneration (for potions)
-    if (status.regeneration?.turns) {
-      const regen = status.regeneration;
-      regen.turns -= 1;
-      if (regen.turns <= 0) {
-        delete target.statusEffects.regeneration;
-        if (targetKind === "player") addLog("Regeneration faded", "info");
-      }
-    }
   }
 
   function escapeHtml(s) {
@@ -2216,6 +2196,12 @@ document.addEventListener("DOMContentLoaded", () => {
         continue; // Skip turn when slowed
       }
 
+      // Invisibility: enemies can't track you outside melee range.
+      if (player.statusEffects?.invisibility?.turns && dist > 1) {
+        tickStatusEffects(e, "enemy");
+        continue;
+      }
+
       if (dist === 1) {
         // Check invisibility - enemies can't see invisible players
         if (player.statusEffects?.invisibility?.turns) {
@@ -2227,13 +2213,7 @@ document.addEventListener("DOMContentLoaded", () => {
             addLog(`${eName} detects you despite invisibility!`, "danger");
           }
         }
-        
-        // Enemies don't chase invisible players outside attack range
-        if (player.statusEffects?.invisibility?.turns && dist > 1) {
-          tickStatusEffects(e, "enemy");
-          continue;
-        }
-        
+
         let rolled = rollBellInt(0, e.dmg);
         const crit = rollChance(0.05);
         if (crit && rolled > 0) {
