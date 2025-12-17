@@ -138,6 +138,12 @@
       "Shop tile detected. Prepare to trade shiny things for survival.",
       "A shop. The prices are probably emotional damage.",
     ],
+    
+    valuable: [
+      "A valuable. Not helpful in a fight—very helpful in a shop.",
+      "Treasure! The kind you can’t eat, but can absolutely sell.",
+      "A shiny trinket. Your future self is already spending it.",
+    ],
 
     trapdoor: [
       "Trapdoor. Because stairs are too mainstream.",
@@ -263,7 +269,7 @@
 
   // Public API: keep script.js small.
 
-  // info.kind can be: player, wall, falseWall, floor, grass, mouse, enemy, potion, food, trap, trapdoor, entrance, upstairs, campfire, shop
+  // info.kind can be: player, wall, falseWall, floor, grass, mouse, enemy, potion, food, valuable, trap, trapdoor, entrance, upstairs, campfire, shop
 
   window.getInvestigationDescription = function getInvestigationDescription(info) {
     const kind = String(info?.kind || "").toLowerCase();
@@ -283,6 +289,7 @@
     if (kind === "enemy") return describeEnemy(info?.enemy);
     if (kind === "campfire") return pick(TEXTS.campfire);
     if (kind === "shop") return pick(TEXTS.shop);
+    if (kind === "valuable") return pick(TEXTS.valuable);
 
     return "You investigate it thoroughly and learn… very little.";
   };

@@ -72,18 +72,34 @@ function renderMenuHtml() {
   let content;
 
   if (activeTab === "inventory") {
-    if (player.inventory.length) {
-      const buttons = player.inventory
-        .map(
-          (p, i) =>
-            `<button type="button" data-use-potion="${i}" class="menu-button" style="color:${p.color};">${escapeHtml(
-              p.name,
-            )}</button>`,
-        )
-        .join("");
-      content = `<div class="menu-inventory">${buttons}</div>`;
+    const cap = Math.max(0, Number(player.maxInventory ?? 0));
+    const used = Array.isArray(player.inventory) ? player.inventory.length : 0;
+    const items = (Array.isArray(player.inventory) ? player.inventory : []).map((it, idx) => ({ it, idx }));
+    const valuables = items.filter(({ it }) => String(it?.effect || "") === "valuable");
+    const consumables = items.filter(({ it }) => String(it?.effect || "") !== "valuable");
+
+    const btn = (it, idx, subtitle = "") =>
+      `<button type="button" data-use-item="${idx}" class="menu-button" style="color:${it?.color || "cyan"};" title="${escapeHtml(it?.name || "")}">
+        ${escapeHtml(it?.name || "Item")}${subtitle ? `<br><small style="opacity:0.75;">${escapeHtml(subtitle)}</small>` : ""}
+      </button>`;
+
+    if (!used) {
+      content = `<div class="menu-empty">Inventory empty (${used}/${cap || "∞"})</div>`;
     } else {
-      content = `<div class="menu-empty">Inventory empty</div>`;
+      const top = `<div class="menu-status" style="margin-bottom: 10px;">Inventory: ${used}/${cap || "∞"}</div>`;
+      const consHtml = consumables.length
+        ? `<div class="menu-status" style="margin: 6px 0 4px; opacity:0.9;">Consumables</div><div class="menu-inventory">${consumables
+            .map(({ it, idx }) => btn(it, idx))
+            .join("")}</div>`
+        : `<div class="menu-empty">No consumables</div>`;
+
+      const valHtml = valuables.length
+        ? `<div class="menu-status" style="margin: 10px 0 4px; opacity:0.9;">Valuables (sell at a shop)</div><div class="menu-inventory">${valuables
+            .map(({ it, idx }) => btn(it, idx, `Worth ${Number(it?.value || 0)}`))
+            .join("")}</div>`
+        : `<div class="menu-empty">No valuables</div>`;
+
+      content = `${top}${consHtml}${valHtml}`;
     }
   } else if (activeTab === "status") {
     const burning = getBurning(player);
@@ -108,6 +124,8 @@ function renderMenuHtml() {
       HP ${player.hp}/${player.maxHp}<br>
       DMG 0-${player.dmg}<br>
       Tough ${player.toughness}<br>
+      Inventory ${player.inventory?.length || 0}/${player.maxInventory || "∞"}<br>
+      Gold: ${player.gold || 0}<br>
       Floor ${floor}<br>
       Score: ${player.score || 0}<br>
       Kills: ${player.kills || 0}<br>
@@ -137,31 +155,77 @@ function renderMenuHtml() {
       }
     }
   } else if (activeTab === "shop") {
-    const shopItems = [
-      ...POTIONS.slice(0, 3).map((p, i) => ({ ...p, price: 50 + i * 25, shopIndex: i })),
-      ...POTIONS.slice(3).map((p, i) => ({ ...p, price: 75 + i * 25, shopIndex: i + 3 })),
-    ];
-    
-    const buttons = shopItems
+    const gold = Number(player.gold || 0);
+    const gear = player.gear || { weapon: 0, armor: 0, pack: 0 };
+
+    const valuables = (player.inventory || [])
+      .map((it, idx) => ({ it, idx }))
+      .filter(({ it }) => String(it?.effect || "") === "valuable")
+      .map(({ it, idx }) => ({ it, idx, sell: Math.max(0, Math.floor(Number(it?.value || 0))) }));
+
+    const sellAllBtn =
+      valuables.length > 0
+        ? `<button type="button" data-sell-all="1" class="menu-button" style="color:#ffd700;">Sell All<br><small>+${valuables.reduce(
+            (a, v) => a + v.sell,
+            0,
+          )} gold</small></button>`
+        : "";
+
+    const sellButtons = valuables
       .map(
-        (item) => {
-          let desc = "";
-          if (item.effect === "fullHeal") desc = " (Heal +1 Max HP)";
-          else if (item.effect === "damageBoost") desc = " (+1 Damage)";
-          else if (item.effect === "toughnessBoost") desc = " (+1 Toughness)";
-          else if (item.effect === "speed") desc = ` (Speed ${item.turns || 10} turns)`;
-          else if (item.effect === "invisibility") desc = ` (Invisible ${item.turns || 5} turns)`;
-          else if (item.effect === "explosive") desc = " (AOE Damage)";
-          return `<button type="button" data-buy-item="${item.shopIndex}" class="menu-button" style="color:${item.color};${player.score < item.price ? "opacity:0.5;" : ""}" title="${escapeHtml(item.name + desc)}">
-            ${escapeHtml(item.name)}${desc ? `<small style="opacity:0.7;">${escapeHtml(desc)}</small>` : ""}<br><small>${item.price} score</small>
-          </button>`;
-        },
+        ({ it, idx, sell }) =>
+          `<button type="button" data-sell-item="${idx}" class="menu-button" style="color:${it?.color || "#ffd700"};${sell <= 0 ? "opacity:0.5;" : ""}">
+            ${escapeHtml(it?.name || "Valuable")}<br><small>+${sell} gold</small>
+          </button>`,
       )
       .join("");
+
+    const upgradeBtn = (kind, label, desc) => {
+      const price = typeof getUpgradeCost === "function" ? getUpgradeCost(kind) : 999999;
+      const dim = gold < price ? "opacity:0.5;" : "";
+      return `<button type="button" data-buy-upgrade="${escapeHtml(kind)}" class="menu-button" style="color:var(--accent);${dim}" title="${escapeHtml(
+        desc,
+      )}">
+        ${escapeHtml(label)}<br><small>${price} gold</small>
+      </button>`;
+    };
+
+    const upgradesHtml = [
+      upgradeBtn("weapon", `Weapon Lv ${Number(gear.weapon || 0)}`, "+1 damage"),
+      upgradeBtn("armor", `Armor Lv ${Number(gear.armor || 0)}`, "+1 toughness"),
+      upgradeBtn("pack", `Pack Lv ${Number(gear.pack || 0)}`, "+2 inventory slots"),
+    ].join("");
+
+    const potionItems = [
+      ...POTIONS.slice(0, 3).map((p, i) => ({ ...p, price: 25 + i * 15, shopIndex: i })),
+      ...POTIONS.slice(3).map((p, i) => ({ ...p, price: 70 + i * 20, shopIndex: i + 3 })),
+    ];
+
+    const potionButtons = potionItems
+      .map((item) => {
+        let desc = "";
+        if (item.effect === "fullHeal") desc = " (Heal +1 Max HP)";
+        else if (item.effect === "damageBoost") desc = " (+1 Damage)";
+        else if (item.effect === "toughnessBoost") desc = " (+1 Toughness)";
+        else if (item.effect === "speed") desc = ` (Speed ${item.turns || 10} turns)`;
+        else if (item.effect === "invisibility") desc = ` (Invisible ${item.turns || 5} turns)`;
+        else if (item.effect === "explosive") desc = " (AOE Damage)";
+        return `<button type="button" data-buy-item="${item.shopIndex}" class="menu-button" style="color:${item.color};${gold < item.price ? "opacity:0.5;" : ""}" title="${escapeHtml(
+          item.name + desc,
+        )}">
+          ${escapeHtml(item.name)}${desc ? `<small style="opacity:0.7;">${escapeHtml(desc)}</small>` : ""}<br><small>${item.price} gold</small>
+        </button>`;
+      })
+      .join("");
+
     content = `<div class="menu-status">
-      <div>Score: ${player.score}</div>
-      <div style="margin-top: 10px;">Shop Items:</div>
-      <div class="menu-inventory">${buttons}</div>
+      <div>Gold: ${gold}</div>
+      <div style="margin-top: 10px; opacity:0.9;">Sell valuables:</div>
+      <div class="menu-inventory">${sellAllBtn}${sellButtons || `<div class="menu-empty">No valuables</div>`}</div>
+      <div style="margin-top: 10px; opacity:0.9;">Upgrades:</div>
+      <div class="menu-inventory">${upgradesHtml}</div>
+      <div style="margin-top: 10px; opacity:0.9;">Consumables:</div>
+      <div class="menu-inventory">${potionButtons}</div>
     </div>`;
   } else if (activeTab === "help") {
     content = `<div class="menu-log" style="text-align:left;">

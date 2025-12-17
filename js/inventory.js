@@ -1,8 +1,15 @@
 /* ===================== INVENTORY ===================== */
 
-function usePotion(i) {
+function useInventoryItem(i) {
   const p = player.inventory[i];
   if (!p) return;
+
+  // Valuables are meant to be sold at a shop.
+  if (p.effect === "valuable") {
+    addLog("You can't use valuables. Sell them at a shop.", "info");
+    playSound?.("menu");
+    return;
+  }
 
   if (p.effect === "fullHeal") {
     player.maxHp += p.value;

@@ -51,6 +51,12 @@ function generateFloor() {
     const cy = 15;
     map[keyOf(cx, cy)] = TILE.ENTRANCE;
 
+    // Courtyard shop (guaranteed): makes the extraction loop obvious.
+    const shopX = cx + 6;
+    const shopY = cy + 4;
+    map[keyOf(shopX, shopY)] = TILE.SHOP;
+    map[`${shopX},${shopY}_shop`] = true;
+
     // Spawn player near the entrance.
     player.x = cx;
     player.y = 20;
@@ -134,6 +140,7 @@ function generateFloor() {
     if (r.type === "enemy") {
       spawnEnemies(r.x, r.y, r.w, r.h);
       spawnPotion(r.x, r.y, r.w, r.h);
+      spawnValuable(r.x, r.y, r.w, r.h, 0.07);
       // Sometimes spawn food in enemy rooms too
       if (rollChance(0.15)) spawnFood(r.x, r.y, r.w, r.h);
     } else if (r.type === "boss") {
@@ -141,11 +148,14 @@ function generateFloor() {
       spawnBossEnemy(r.x, r.y, r.w, r.h);
       // Boss room has guaranteed potion
       if (rollChance(0.8)) spawnPotion(r.x, r.y, r.w, r.h);
+      // Boss room should feel “worth it”
+      for (let i = 0; i < rand(1, 2); i++) spawnValuable(r.x, r.y, r.w, r.h, 1.0);
     } else if (r.type === "treasure") {
       // Treasure room: lots of loot, no enemies
       for (let i = 0; i < rand(2, 4); i++) {
         spawnPotion(r.x, r.y, r.w, r.h);
       }
+      for (let i = 0; i < rand(1, 3); i++) spawnValuable(r.x, r.y, r.w, r.h, 1.0);
       // Spawn food in treasure rooms (higher chance)
       if (rollChance(0.7)) spawnFood(r.x, r.y, r.w, r.h);
     } else if (r.type === "trap") {
@@ -164,6 +174,7 @@ function generateFloor() {
       }
       // Guaranteed potion in trap room
       spawnPotion(r.x, r.y, r.w, r.h);
+      spawnValuable(r.x, r.y, r.w, r.h, 0.65);
     } else if (r.type === "shop") {
       // Shop room: merchant NPC
       const shopX = Math.floor(r.x + r.w / 2);
@@ -480,6 +491,24 @@ function spawnPotion(x, y, w, h) {
 
     setTileAt(px, py, TILE.POTION);
     setLootAtKey(keyOf(px, py), p);
+    return;
+  }
+}
+
+function spawnValuable(x, y, w, h, chance = 0.08) {
+  if (!Array.isArray(VALUABLES) || !VALUABLES.length) return;
+  if (!rollChance(chance)) return;
+
+  const it = VALUABLES[rand(0, VALUABLES.length - 1)];
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const vx = rand(x, x + w - 1);
+    const vy = rand(y, y + h - 1);
+    const k = keyOf(vx, vy);
+    if (map[k] !== ".") continue;
+    if (enemies.some((e) => e.x === vx && e.y === vy)) continue;
+    if (lootAtKey(k) || trapAtKey(k)) continue;
+    map[k] = it.symbol;
+    setLootAtKey(k, it);
     return;
   }
 }

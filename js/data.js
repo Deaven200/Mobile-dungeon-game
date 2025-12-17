@@ -9,6 +9,16 @@ const POTIONS = [
   { name: "Explosive Potion", effect: "explosive", value: 3, symbol: "P", color: "#ff8800" },
 ];
 
+// Valuables: can’t be used in-dungeon; meant to be sold after you extract.
+// Keep the symbols ASCII so monospace rendering stays consistent.
+const VALUABLES = [
+  { name: "Coin Pouch", effect: "valuable", value: 30, symbol: "*", color: "#ffd700" },
+  { name: "Silver Ring", effect: "valuable", value: 55, symbol: "*", color: "#cfd8dc" },
+  { name: "Jeweled Goblet", effect: "valuable", value: 90, symbol: "*", color: "#7fffd4" },
+  { name: "Ancient Relic", effect: "valuable", value: 140, symbol: "*", color: "#ff8c00" },
+  { name: "Royal Gem", effect: "valuable", value: 220, symbol: "*", color: "#ff66ff" },
+];
+
 const RAT_MEAT = { name: "Rat Meat", effect: "food", hunger: 2, heal: 0, symbol: "M", color: "#ff7aa0", cooked: false };
 const COOKED_RAT_MEAT = {
   name: "Cooked Rat Meat",

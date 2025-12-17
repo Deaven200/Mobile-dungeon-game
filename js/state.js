@@ -68,11 +68,14 @@ let player = {
   dmg: 2,
   toughness: 0,
   inventory: [],
+  maxInventory: 10,
   hunger: 10,
   maxHunger: 10,
   kills: 0,
   combo: 0,
   score: 0,
+  gold: 0,
+  gear: { weapon: 0, armor: 0, pack: 0 },
   statusEffects: {},
 };
 

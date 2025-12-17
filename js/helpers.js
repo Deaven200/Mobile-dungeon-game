@@ -564,7 +564,7 @@ function updateHud() {
   if (hungerMax) hungerMax.textContent = Number(player.maxHunger || 0).toFixed(1);
   
   // Build status line with combo and status effects
-  let statusParts = [`Floor ${floor}`, `Score: ${player.score || 0}`];
+  let statusParts = [`Floor ${floor}`, `Gold: ${player.gold || 0}`, `Score: ${player.score || 0}`];
   if (player.combo > 0) {
     statusParts.push(`${player.combo}x Combo`);
   }
@@ -667,26 +667,122 @@ function openShopMenu() {
   draw();
 }
 
+function getItemSellValue(item) {
+  if (!item) return 0;
+  if (String(item.effect || "") !== "valuable") return 0;
+  return Math.max(0, Math.floor(Number(item.value || 0)));
+}
+
+function sellInventoryItem(invIndex) {
+  if (!atShop) return;
+  const idx = Number(invIndex);
+  if (!Number.isFinite(idx)) return;
+  const it = player.inventory?.[idx];
+  if (!it) return;
+  const v = getItemSellValue(it);
+  if (!v) {
+    addLog("That can't be sold here.", "block");
+    return;
+  }
+  player.gold = Math.max(0, Number(player.gold || 0) + v);
+  player.inventory.splice(idx, 1);
+  addLog(`Sold ${it.name} (+${v} gold)`, "loot");
+  playSound?.("loot");
+  vibrate(10);
+  draw();
+}
+
+function sellAllValuables() {
+  if (!atShop) return;
+  let gained = 0;
+  const kept = [];
+  for (const it of player.inventory || []) {
+    const v = getItemSellValue(it);
+    if (v > 0) gained += v;
+    else kept.push(it);
+  }
+  if (gained <= 0) {
+    addLog("No valuables to sell.", "info");
+    return;
+  }
+  player.inventory = kept;
+  player.gold = Math.max(0, Number(player.gold || 0) + gained);
+  addLog(`Sold valuables (+${gained} gold)`, "loot");
+  playSound?.("loot");
+  vibrate([12, 30, 12]);
+  draw();
+}
+
+function getUpgradeCost(kind) {
+  const w = Number(player.gear?.weapon || 0);
+  const a = Number(player.gear?.armor || 0);
+  const p = Number(player.gear?.pack || 0);
+  if (kind === "weapon") return 80 + w * 60;
+  if (kind === "armor") return 80 + a * 60;
+  if (kind === "pack") return 60 + p * 50;
+  return 999999;
+}
+
+function buyUpgrade(kind) {
+  if (!atShop) return;
+  const k = String(kind || "");
+  const cost = getUpgradeCost(k);
+  if (!Number.isFinite(cost)) return;
+  if (Number(player.gold || 0) < cost) {
+    addLog("Not enough gold", "block");
+    return;
+  }
+  player.gold -= cost;
+  if (!player.gear || typeof player.gear !== "object") player.gear = { weapon: 0, armor: 0, pack: 0 };
+
+  if (k === "weapon") {
+    player.gear.weapon = Number(player.gear.weapon || 0) + 1;
+    player.dmg += 1;
+    addLog("Upgraded weapon (+1 dmg)", "loot");
+  } else if (k === "armor") {
+    player.gear.armor = Number(player.gear.armor || 0) + 1;
+    player.toughness += 1;
+    addLog("Upgraded armor (+1 toughness)", "loot");
+  } else if (k === "pack") {
+    player.gear.pack = Number(player.gear.pack || 0) + 1;
+    player.maxInventory = Math.max(0, Number(player.maxInventory ?? 10) + 2);
+    addLog("Upgraded pack (+2 slots)", "loot");
+  } else {
+    // Refund
+    player.gold += cost;
+    return;
+  }
+  playSound?.("loot");
+  vibrate(12);
+  draw();
+}
+
 function buyShopItem(shopIndex) {
   if (!atShop) return;
   const idx = Number(shopIndex);
   if (!Number.isFinite(idx)) return;
 
   const shopItems = [
-    ...POTIONS.slice(0, 3).map((p, i) => ({ ...p, price: 50 + i * 25, shopIndex: i })),
-    ...POTIONS.slice(3).map((p, i) => ({ ...p, price: 75 + i * 25, shopIndex: i + 3 })),
+    ...POTIONS.slice(0, 3).map((p, i) => ({ ...p, price: 25 + i * 15, shopIndex: i })),
+    ...POTIONS.slice(3).map((p, i) => ({ ...p, price: 70 + i * 20, shopIndex: i + 3 })),
   ];
 
   const item = shopItems.find((it) => it.shopIndex === idx);
   if (!item) return;
 
   const price = Number(item.price || 0);
-  if (player.score < price) {
-    addLog("Not enough score", "block");
+  if (Number(player.gold || 0) < price) {
+    addLog("Not enough gold", "block");
     return;
   }
 
-  player.score -= price;
+  const cap = Math.max(0, Number(player.maxInventory ?? 10));
+  if (cap && (player.inventory?.length || 0) >= cap) {
+    addLog("Inventory full", "block");
+    return;
+  }
+
+  player.gold -= price;
   // Store the base item (no price/shopIndex fields).
   const { price: _p, shopIndex: _s, ...baseItem } = item;
   player.inventory.push(baseItem);
@@ -842,7 +938,11 @@ function showEnterDungeonPrompt() {
           // New dive => new dungeon. Reseed so the floor layouts are fresh every time you enter.
           seedRng(createSeed());
 
-
+          // New dive stats
+          player.score = 0;
+          player.kills = 0;
+          player.combo = 0;
+          player.statusEffects = {};
 
           floor = 1;
           generateFloor();
@@ -866,7 +966,7 @@ function showEnterDungeonPrompt() {
 function showExitToCourtyardPrompt() {
   showPromptOverlay(
     "Exit to courtyard?",
-    `<div style="opacity:0.9; text-align:center;">Leaving ends this dive. You keep whatever you carried out.</div>`,
+    `<div style="opacity:0.9; text-align:center;">Leaving ends this dive. Bring valuables to the courtyard shop to sell for gold.</div>`,
     [
       {
         id: "exitToCourtyardBtn",
@@ -1029,6 +1129,12 @@ function loadGame(saveId = null) {
     }
     
     player = { ...player, ...saveData.player };
+    if (!Number.isFinite(player.maxInventory)) player.maxInventory = 10;
+    if (!Number.isFinite(player.gold)) player.gold = 0;
+    if (!player.gear || typeof player.gear !== "object") player.gear = { weapon: 0, armor: 0, pack: 0 };
+    if (!Number.isFinite(player.gear.weapon)) player.gear.weapon = 0;
+    if (!Number.isFinite(player.gear.armor)) player.gear.armor = 0;
+    if (!Number.isFinite(player.gear.pack)) player.gear.pack = 0;
     floor = saveData.floor || floor;
 
     // Restore full game state if present.
@@ -1170,11 +1276,14 @@ function startGame(options = {}) {
       dmg: 2,
       toughness: 0,
       inventory: [],
+      maxInventory: 10,
       hunger: 10,
       maxHunger: 10,
       kills: 0,
       combo: 0,
       score: 0,
+      gold: 0,
+      gear: { weapon: 0, armor: 0, pack: 0 },
       statusEffects: {},
       name: "",
       talent: "",
@@ -1471,6 +1580,7 @@ function getInvestigationInfoAt(tx, ty) {
   if (loot) {
     const effect = String(loot?.effect || "").toLowerCase();
     if (effect === "food") return { kind: "food", food: loot };
+    if (effect === "valuable") return { kind: "valuable", valuable: loot };
     return { kind: "potion", potion: loot };
   }
 
@@ -1858,10 +1968,6 @@ function showDialogueOverlay(title, pages, onDone) {
   render();
   return true;
 }
-
-
-
-n
 function showRecruiterIntro(onDone) {
   const name = Array.isArray(NAMES) && NAMES.length ? NAMES[rand(0, NAMES.length - 1)] : "Unknown";
   const talentObj = Array.isArray(TALENTS) && TALENTS.length ? TALENTS[rand(0, TALENTS.length - 1)] : null;
@@ -1870,6 +1976,8 @@ function showRecruiterIntro(onDone) {
   // Store for later systems (camp, lineage, etc.)
   player.name = name;
   player.talent = talentObj?.id || "none";
+  // Apply a small, immediate passive so talents feel real.
+  player.maxInventory = 10 + (player.talent === "packrat" ? 2 : 0);
 
 
   const you = (t) => `<div style="margin-top:6px; color: var(--accent);">You: ${t}</div>`;
