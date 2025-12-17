@@ -822,8 +822,8 @@ function placeTraps() {
 }
 
 function shouldHaveHiddenRoomOnFloor(f) {
-  if (f === 1) return true;
-  return rollChance(0.1);
+  // Hidden rooms are an occasional surprise; no guaranteed floor.
+  return rollChance(0.12);
 }
 
 function generateHiddenRoom() {
@@ -836,7 +836,7 @@ function generateHiddenRoom() {
   if (!eligibleAnchorRooms.length) return;
 
   const healthPotion = POTIONS.find((p) => p.name === "Health Potion") || POTIONS[0];
-  const hiddenPotion = floor === 1 ? healthPotion : POTIONS[rand(0, POTIONS.length - 1)];
+  const hiddenPotion = POTIONS[rand(0, POTIONS.length - 1)] || healthPotion;
 
   const makeHiddenTrap = () => {
     const base = TRAP_TYPES[rand(0, TRAP_TYPES.length - 1)];

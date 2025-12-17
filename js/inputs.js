@@ -426,6 +426,7 @@ function bindInputs() {
         return;
       }
 
+
       if (btn.dataset.diffAdjust != null) {
         const s = String(btn.dataset.diffAdjust);
         const parts = s.split(":");
@@ -434,6 +435,7 @@ function bindInputs() {
         adjustDifficulty(key, delta);
         return;
       }
+
     });
 
     // Settings toggles in the in-game menu are <input type="checkbox"> elements.
