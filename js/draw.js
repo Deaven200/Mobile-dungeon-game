@@ -99,7 +99,12 @@ function renderMenuHtml() {
     if (statusEffects.slow?.turns) statusLines.push(`Slowed (${statusEffects.slow.turns} turns)`);
     if (statusEffects.regeneration?.turns) statusLines.push(`Regenerating (${statusEffects.regeneration.turns} turns)`);
     
+    const talentLabel =
+      (Array.isArray(TALENTS) ? TALENTS.find((t) => t?.id === player?.talent)?.label : null) || player?.talent || "None";
+    const nameLabel = player?.name ? escapeHtml(player.name) : "Unknown";
     content = `<div class="menu-status">
+      Name: ${nameLabel}<br>
+      Talent: ${escapeHtml(String(talentLabel))}<br><br>
       HP ${player.hp}/${player.maxHp}<br>
       DMG 0-${player.dmg}<br>
       Tough ${player.toughness}<br>
@@ -162,6 +167,7 @@ function renderMenuHtml() {
     content = `<div class="menu-log" style="text-align:left;">
       <div class="log-line" style="color: var(--accent); font-weight: bold;">Controls</div>
       <div class="log-line">- Tap a tile to auto-walk there (pathfinding).</div>
+      <div class="log-line">- Menu → Walkout: auto-walk to the exit (you can still be attacked).</div>
       <div class="log-line">- Tap <b>●</b> to open/close the menu (pauses).</div>
       <div class="log-line">- Tap <b>?</b> to arm Investigate, then tap a tile to inspect it.</div>
       <div class="log-line">- Pinch with 2 fingers to zoom the view in/out.</div>
@@ -247,6 +253,7 @@ function renderMenuHtml() {
         ${tabBtn("help", "Help")}
         ${tabBtn("settings", "Settings")}
         ${tabBtn("log", "Log")}
+        ${actionBtn("walkout", "Walkout")}
         ${actionBtn("quit-to-menu", "Quit to Menu")}
         ${actionBtn("close-menu", "Close")}
       </div>
@@ -397,8 +404,11 @@ function draw() {
           if (pathKeys.has(key)) pushCell(".", "color:#0ff;text-shadow: 0 0 4px rgba(0,255,255,0.35);");
           else pushCell(".", "color:#555;");
         } // floor
+        else if (ch === TILE.GRASS) pushCell(",", "color:#1fbf3a;"); // grass
         else if (ch === TILE.TRAP_VISIBLE) pushCell("~", "color:orange;"); // fallback
         else if (ch === TILE.WALL) pushCell("#", "color:lime;"); // wall
+        else if (ch === TILE.ENTRANCE) pushCell("D", `color:var(--accent);${popCss}`); // dungeon entrance
+        else if (ch === TILE.UPSTAIRS) pushCell("U", `color:#8ff;${popCss}`); // exit upstairs
         else if (ch === TILE.TRAPDOOR) {
           // Only show trapdoor if no enemy is on it
           if (!enemyByPos.has(key)) {

@@ -280,6 +280,11 @@ function bindInputs() {
         draw();
         return;
       }
+      
+      if (btn.dataset.action === "walkout") {
+        startWalkout();
+        return;
+      }
 
       if (btn.dataset.tab) {
         setTab(btn.dataset.tab);
