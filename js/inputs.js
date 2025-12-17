@@ -329,6 +329,26 @@ function bindInputs() {
         draw();
         return;
       }
+      if (btn.dataset.codexSection != null) {
+        menuCodexSection = String(btn.dataset.codexSection || "items");
+        // Reset selection when switching sections; draw() will auto-pick.
+        menuCodexSelectedKey = null;
+        playSound?.("menu");
+        draw();
+        return;
+      }
+      if (btn.dataset.codexSort != null) {
+        menuCodexSort = String(btn.dataset.codexSort || "name");
+        playSound?.("menu");
+        draw();
+        return;
+      }
+      if (btn.dataset.codexSelect != null) {
+        menuCodexSelectedKey = String(btn.dataset.codexSelect || "");
+        playSound?.("menu");
+        draw();
+        return;
+      }
 
       if (btn.dataset.action === "close-menu") {
         toggleMenu();

@@ -2690,12 +2690,17 @@ function startAutoMoveTo(targetX, targetY) {
   if (gamePaused || menuOpen) return;
   autoMove.mode = null;
 
-  const tile = map[keyOf(targetX, targetY)] || "#";
+  const targetKey = keyOf(targetX, targetY);
+  const tile = map[targetKey] || "#";
   if (tile === "#") return;
 
   // If tapping an enemy, path to an adjacent tile, then do one final attack step.
   const enemy = enemies.find((e) => e.x === targetX && e.y === targetY);
-  if (enemy) {
+  const tappedTile = tileAtKey?.(targetKey) ?? tile;
+  const prop = typeof propAtKey === "function" ? propAtKey(targetKey) : null;
+  const isProp = !!prop || tappedTile === TILE.CRATE || tappedTile === TILE.BARREL;
+
+  if (enemy || isProp) {
     const adj = [
       { x: targetX + 1, y: targetY },
       { x: targetX - 1, y: targetY },
