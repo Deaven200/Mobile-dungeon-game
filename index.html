@@ -86,8 +86,36 @@
     // Enable "Add to Home Screen" / installable app behavior (PWA).
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js").catch(() => {
-          // Non-fatal: game still runs without offline caching.
+        navigator.serviceWorker
+          .register("./sw.js", { updateViaCache: "none" })
+          .then((reg) => {
+            // Always check for updates when you open the bookmark.
+            try { reg.update(); } catch {}
+
+            // If there's already a waiting SW, activate it immediately.
+            if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+
+            reg.addEventListener("updatefound", () => {
+              const sw = reg.installing;
+              if (!sw) return;
+              sw.addEventListener("statechange", () => {
+                // New version installed -> activate + reload to ensure newest JS/CSS are used.
+                if (sw.state === "installed" && navigator.serviceWorker.controller) {
+                  reg.waiting?.postMessage({ type: "SKIP_WAITING" });
+                }
+              });
+            });
+          })
+          .catch(() => {
+            // Non-fatal: game still runs without offline caching.
+          });
+
+        // When the new SW takes control, reload once to use the newest cached assets.
+        let reloaded = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (reloaded) return;
+          reloaded = true;
+          window.location.reload();
         });
       });
     }
