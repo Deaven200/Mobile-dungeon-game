@@ -1090,14 +1090,12 @@ function triggerTrapAtEntity(x, y, target, targetKind = "player") {
     addBurning(target, trap.status.turns ?? 3, trap.status.dmgPerTurn ?? 1);
     if (targetKind === "player") {
       addLog("You are burning!", "danger");
-      floorStats.trapsTriggered++;
     }
   }
   if (trap.type === "poison") {
     addPoisoned(target, 4, 1);
     if (targetKind === "player") {
       addLog("Poisoned!", "danger");
-      floorStats.trapsTriggered++;
     }
   }
   if (targetKind === "player") floorStats.trapsTriggered++;

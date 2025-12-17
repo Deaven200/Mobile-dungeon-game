@@ -1306,9 +1306,13 @@ function tickHungerRegeneration() {
   if (isOutOfCombat) {
     // Only regenerate if actually missing HP
     const missingHp = player.maxHp - player.hp;
-    if (missingHp > 0 && player.hunger >= HUNGER_COST_REGEN) {
+    const b = typeof getPlayerBonuses === "function" ? getPlayerBonuses() : { hungerCostMult: 1 };
+    const mult = Math.max(0, Number(b.hungerCostMult || 1));
+    const effectiveCost = HUNGER_COST_REGEN * mult;
+    if (missingHp > 0 && player.hunger >= effectiveCost) {
       player.hp = Math.min(player.maxHp, player.hp + HP_REGEN_AMOUNT);
-      player.hunger = Math.max(0, player.hunger - HUNGER_COST_REGEN);
+      // Route through tickHunger so curses/modifiers apply consistently.
+      tickHunger(HUNGER_COST_REGEN);
     }
   }
 }
