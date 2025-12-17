@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00ffff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#00ff00" stop-opacity="0.08"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="#000"/>
+  <rect x="24" y="24" width="464" height="464" rx="56" fill="url(#g)" stroke="#00ffff" stroke-opacity="0.35" stroke-width="4"/>
+
+  <text x="256" y="295" text-anchor="middle" font-family="monospace" font-size="220" fill="#00ff00">@</text>
+  <text x="256" y="392" text-anchor="middle" font-family="monospace" font-size="44" fill="#00ffff" fill-opacity="0.9">DUNGEON</text>
+</svg>

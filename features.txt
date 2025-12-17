@@ -59,3 +59,6 @@
 - False-wall reveal; hidden area tiles render as walls until you walk into the entrance false wall to reveal the passage
 - Hidden room contents; exactly 1 potion (Health Potion on floor 1, otherwise random) and exactly 1 hidden trap (no enemies)
 - Mouse hint (m); a small mouse wanders and, if you get close before the secret is revealed, runs toward the false wall and briefly “pulses” the entrance when it escapes
+
+- Installable app (PWA); add the game to your phone’s home screen and launch it by tapping the icon
+- Offline caching; after the first load, core files are cached so the game can open without a reliable connection
