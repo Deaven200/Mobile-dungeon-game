@@ -43,6 +43,13 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+self.addEventListener("message", (event) => {
+  const msg = event?.data;
+  if (msg && msg.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
@@ -50,29 +57,33 @@ self.addEventListener("fetch", (event) => {
   // Only handle same-origin requests.
   if (url.origin !== self.location.origin) return;
 
-  // Navigation requests: prefer cached app shell, fall back to network.
+  // Navigation requests: NETWORK-FIRST (always try newest), fall back to cached shell.
   if (req.mode === "navigate") {
     event.respondWith(
-      caches.match("./index.html").then((cached) => cached || fetch(req))
+      fetch(req)
+        .then((res) => {
+          // Update cached app shell in background.
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match("./index.html"))
     );
     return;
   }
 
-  // Cache-first for static assets; update cache in background.
+  // Static assets: NETWORK-FIRST (newest), fall back to cache (offline).
   event.respondWith(
-    caches.match(req).then((cached) => {
-      const fetchPromise = fetch(req)
-        .then((res) => {
-          // Only cache successful basic responses.
-          if (res && res.ok && res.type === "basic") {
-            const copy = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => cached);
-
-      return cached || fetchPromise;
-    })
+    fetch(req)
+      .then((res) => {
+        if (res && res.ok && res.type === "basic") {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(req))
   );
 });
