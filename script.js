@@ -98,8 +98,9 @@ document.addEventListener("DOMContentLoaded", () => {
     color: "#ffb65c",
     cooked: true,
   };
-  const MUSHROOM = { name: "Mushroom", effect: "food", hunger: 1, heal: 1, symbol: "m", color: "#cc88cc", cooked: false };
-  const BERRY = { name: "Berry", effect: "food", hunger: 1, heal: 0, symbol: "b", color: "#ff4477", cooked: false };
+  // Food symbols avoid overlapping common entity glyphs (mouse/enemies).
+  const MUSHROOM = { name: "Mushroom", effect: "food", hunger: 1, heal: 1, symbol: "f", color: "#cc88cc", cooked: false };
+  const BERRY = { name: "Berry", effect: "food", hunger: 1, heal: 0, symbol: "y", color: "#ff4477", cooked: false };
 
   // Brighter colors for readability
   const RAT = { hp: 3, dmg: 1, color: "#bdbdbd", sight: 4, symbol: "r", name: "Rat" };
@@ -999,13 +1000,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const loot = map[`${key}_loot`];
-    if (loot) return { kind: "potion", potion: loot };
+    if (loot) {
+      const effect = String(loot?.effect || "").toLowerCase();
+      if (effect === "food") return { kind: "food", food: loot };
+      return { kind: "potion", potion: loot };
+    }
 
     const trap = map[`${key}_trap`];
     if (trap) return { kind: "trap", trap };
 
     const ch = map[key] || "#";
     if (ch === "T") return { kind: "trapdoor" };
+    if (ch === "C") return { kind: "campfire" };
+    if (ch === "$") return { kind: "shop" };
     if (ch === "#") return { kind: "wall" };
     return { kind: "floor" };
   }
@@ -1017,18 +1024,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const kind = String(info?.kind || "info").toLowerCase();
     
-    // Add health info for enemies
-    if (kind === "enemy" && info?.enemy) {
-      const e = info.enemy;
-      text += ` (HP: ${e.hp}/${e.hp + (e.maxHp || e.hp)})`;
-    }
-    
     const logType =
       kind === "enemy"
         ? "enemy"
         : kind === "trap"
           ? "danger"
-          : kind === "potion"
+          : kind === "potion" || kind === "food"
             ? "loot"
             : kind === "trapdoor"
               ? "floor"
