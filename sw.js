@@ -1,6 +1,7 @@
-/* Simple offline cache for the game (PWA). */
+/* Offline cache for the game (PWA). */
 
-const CACHE_NAME = "dungeon-roguelike-v1";
+// Bump this to force all clients to refresh cached assets.
+const CACHE_NAME = "dungeon-roguelike-v2";
 
 const PRECACHE_URLS = [
   "./",
@@ -40,10 +41,17 @@ self.addEventListener("fetch", (event) => {
   // Only handle same-origin requests.
   if (url.origin !== self.location.origin) return;
 
-  // Navigation requests: prefer cached app shell, fall back to network.
+  // Navigation requests: network-first so updates propagate quickly.
   if (req.mode === "navigate") {
     event.respondWith(
-      caches.match("./index.html").then((cached) => cached || fetch(req))
+      fetch(req)
+        .then((res) => {
+          // Update cached app shell in the background.
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", copy));
+          return res;
+        })
+        .catch(() => caches.match("./index.html"))
     );
     return;
   }
