@@ -3,5 +3,5 @@
 // - MAJOR: stable “working game as-is” milestone
 // - MINOR: new features
 // - PATCH: fixes (can extend: 1.021, 1.0211, etc.)
-const GAME_VERSION = "1.05";
+const GAME_VERSION = "1.06";
 window.GAME_VERSION = GAME_VERSION;
