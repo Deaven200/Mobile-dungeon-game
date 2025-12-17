@@ -10,6 +10,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let atShop = false;
   let inMainMenu = true;
   let gameStarted = false;
+  // Seeded RNG so "true saves" can restore deterministically.
+  let runSeed = 0;
+  let rngState = 0;
   let settings = {
     showDamageNumbers: true,
     showEnemyHealth: true,
@@ -17,6 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
     autoSave: true,
   };
   let floorStats = { enemiesKilled: 0, itemsFound: 0, trapsTriggered: 0, damageTaken: 0, damageDealt: 0 };
+  let hiddenTrapCount = 0;
 
   // Sight model:
   // - FULL_SIGHT_RADIUS: you can see everything (enemies, items, traps, etc.)
@@ -125,7 +129,41 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===================== HELPERS ===================== */
 
-  const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+  function createSeed() {
+    try {
+      const buf = new Uint32Array(1);
+      crypto.getRandomValues(buf);
+      return buf[0] >>> 0;
+    } catch {
+      // Best-effort fallback.
+      return (Date.now() ^ ((performance?.now?.() || 0) * 1000)) >>> 0;
+    }
+  }
+
+  function seedRng(seed) {
+    runSeed = (seed >>> 0) || 1;
+    rngState = runSeed;
+  }
+
+  // Mulberry32: fast PRNG with 32-bit state (good enough for gameplay randomness).
+  function rand01() {
+    rngState |= 0;
+    rngState = (rngState + 0x6d2b79f5) | 0;
+    let t = Math.imul(rngState ^ (rngState >>> 15), 1 | rngState);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  const rand = (a, b) => Math.floor(rand01() * (b - a + 1)) + a;
+  const rollChance = (p) => rand01() < Number(p || 0);
+
+  function shuffleInPlace(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rand01() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
 
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
@@ -164,8 +202,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const lo = Math.min(Number(min || 0), Number(max || 0));
     const hi = Math.max(Number(min || 0), Number(max || 0));
     if (hi <= lo) return lo;
-    const u = lo + (hi - lo) * Math.random();
-    const v = lo + (hi - lo) * Math.random();
+    const u = lo + (hi - lo) * rand01();
+    const v = lo + (hi - lo) * rand01();
     const x = (u + v) / 2;
     return Math.max(lo, Math.min(hi, Math.round(x)));
   }
@@ -595,7 +633,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Auto-save before continuing
     if (settings.autoSave) {
-      saveGame();
+      saveGame("Auto-save");
     }
     
     // Auto-continue after 3 seconds
@@ -627,6 +665,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function serializeHiddenArea(ha) {
+    if (!ha) return null;
+    return {
+      ...ha,
+      tiles: Array.from(ha.tiles || []),
+      falseWalls: Array.from(ha.falseWalls || []),
+    };
+  }
+
+  function deserializeHiddenArea(ha) {
+    if (!ha) return null;
+    return {
+      ...ha,
+      tiles: new Set(ha.tiles || []),
+      falseWalls: new Set(ha.falseWalls || []),
+    };
+  }
+
   function saveGame(saveName = null) {
     try {
       const saveData = {
@@ -636,6 +692,21 @@ document.addEventListener("DOMContentLoaded", () => {
         floor,
         score: player.score,
         timestamp: Date.now(),
+        version: 2,
+        state: {
+          runSeed,
+          rngState,
+          zoomScale,
+          floorStats,
+          hiddenTrapCount,
+          explored: Array.from(explored),
+          map,
+          rooms,
+          enemies,
+          hiddenArea: serializeHiddenArea(hiddenArea),
+          mouse,
+          logHistory,
+        },
       };
       
       // Get all saves
@@ -649,11 +720,15 @@ document.addEventListener("DOMContentLoaded", () => {
         saves.push(saveData);
       }
       
-      // Keep only last 10 saves
+      // Keep only last 5 saves (full dungeon state can be large in localStorage).
       saves.sort((a, b) => b.timestamp - a.timestamp);
-      const limitedSaves = saves.slice(0, 10);
+      const limitedSaves = saves.slice(0, 5);
       
-      saveSavesList(limitedSaves);
+      const ok = saveSavesList(limitedSaves);
+      if (!ok) {
+        addLog("Save failed (storage full?)", "danger");
+        return false;
+      }
       addLog(`Game saved: ${saveData.name}`, "info");
       return true;
     } catch (e) {
@@ -686,8 +761,29 @@ document.addEventListener("DOMContentLoaded", () => {
       
       player = { ...player, ...saveData.player };
       floor = saveData.floor || floor;
+
+      // Restore full game state if present.
+      if (saveData.state) {
+        runSeed = (saveData.state.runSeed >>> 0) || runSeed || 1;
+        rngState = (saveData.state.rngState >>> 0) || rngState || runSeed || 1;
+        zoomScale = Number(saveData.state.zoomScale || 1);
+        floorStats = saveData.state.floorStats || floorStats;
+        hiddenTrapCount = Number(saveData.state.hiddenTrapCount || 0);
+        explored = new Set(saveData.state.explored || []);
+        map = saveData.state.map || map;
+        rooms = saveData.state.rooms || rooms;
+        enemies = saveData.state.enemies || enemies;
+        hiddenArea = deserializeHiddenArea(saveData.state.hiddenArea);
+        mouse = saveData.state.mouse || mouse;
+        logHistory = saveData.state.logHistory || logHistory;
+        liveLogs = [];
+      } else {
+        // Older saves: keep behavior (regen the floor), but ensure RNG exists.
+        if (!runSeed) seedRng(createSeed());
+      }
       
-      startGame();
+      // Start a run without wiping the loaded player stats.
+      startGame({ fromLoad: true, skipGenerateFloor: !!saveData.state });
       addLog(`Game loaded: ${saveData.name}`, "loot");
       return true;
     } catch (e) {
@@ -791,9 +887,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function startGame() {
-    // Reset player stats for new game
-    if (!gameStarted) {
+  function startGame(options = {}) {
+    const { fromLoad = false, skipGenerateFloor = false } = options || {};
+
+    // Reset player stats for new game (but do not reset when loading a save)
+    if (!gameStarted && !fromLoad) {
+      seedRng(createSeed());
       player = {
         x: 0,
         y: 0,
@@ -810,8 +909,10 @@ document.addEventListener("DOMContentLoaded", () => {
         statusEffects: {},
       };
       floor = 1;
-      gameStarted = true;
     }
+
+    // Mark game as started even if we came from a load.
+    if (!gameStarted) gameStarted = true;
     
     inMainMenu = false;
     const mainMenuEl = document.getElementById("mainMenu");
@@ -822,8 +923,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (mapContainerEl) mapContainerEl.style.display = "flex";
     if (controlsEl) controlsEl.style.display = "flex";
     
-    generateFloor();
-    setMenuOpen(false);
+    if (skipGenerateFloor) {
+      setMenuOpen(false);
+      draw();
+    } else {
+      generateFloor();
+      setMenuOpen(false);
+    }
   }
 
   function returnToMainMenu() {
@@ -852,7 +958,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function quitToMenu() {
     if (confirm("Quit to main menu? Progress will be saved.")) {
       if (settings.autoSave) {
-        saveGame();
+        saveGame("Auto-save");
       }
       returnToMainMenu();
     }
@@ -964,7 +1070,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function quitGame() {
     if (confirm("Quit the game? Your progress will be saved automatically.")) {
       if (settings.autoSave && gameStarted) {
-        saveGame();
+        saveGame("Auto-save");
       }
       // Close the window/tab if possible, otherwise just show a message
       try {
@@ -1250,6 +1356,7 @@ document.addEventListener("DOMContentLoaded", () => {
     mouse = null;
     explored = new Set();
     floorStats = { enemiesKilled: 0, itemsFound: 0, damageTaken: 0, damageDealt: 0, trapsTriggered: 0 };
+    hiddenTrapCount = 0;
 
     const roomCount = calculateRoomCountForFloor(floor);
 
@@ -1326,19 +1433,19 @@ document.addEventListener("DOMContentLoaded", () => {
         spawnEnemies(r.x, r.y, r.w, r.h);
         spawnPotion(r.x, r.y, r.w, r.h);
         // Sometimes spawn food in enemy rooms too
-        if (Math.random() < 0.15) spawnFood(r.x, r.y, r.w, r.h);
+        if (rollChance(0.15)) spawnFood(r.x, r.y, r.w, r.h);
       } else if (r.type === "boss") {
         // Spawn boss enemy (uppercase version of regular enemy)
         spawnBossEnemy(r.x, r.y, r.w, r.h);
         // Boss room has guaranteed potion
-        if (Math.random() < 0.8) spawnPotion(r.x, r.y, r.w, r.h);
+        if (rollChance(0.8)) spawnPotion(r.x, r.y, r.w, r.h);
       } else if (r.type === "treasure") {
         // Treasure room: lots of loot, no enemies
         for (let i = 0; i < rand(2, 4); i++) {
           spawnPotion(r.x, r.y, r.w, r.h);
         }
         // Spawn food in treasure rooms (higher chance)
-        if (Math.random() < 0.7) spawnFood(r.x, r.y, r.w, r.h);
+        if (rollChance(0.7)) spawnFood(r.x, r.y, r.w, r.h);
       } else if (r.type === "trap") {
         // Trap room: many traps, high risk/reward
         for (let i = 0; i < rand(3, 6); i++) {
@@ -1347,8 +1454,10 @@ document.addEventListener("DOMContentLoaded", () => {
           const key = `${tx},${ty}`;
           if (map[key] === "." && !map[`${key}_loot`] && !map[`${key}_trap`]) {
             const trap = TRAP_TYPES[rand(0, TRAP_TYPES.length - 1)];
-            map[`${key}_trap`] = { ...trap, hidden: Math.random() < 0.3 };
-            if (!map[`${key}_trap`].hidden) map[key] = "~";
+            const hidden = rollChance(0.3);
+            map[`${key}_trap`] = { ...trap, hidden };
+            if (hidden) hiddenTrapCount++;
+            else map[key] = "~";
           }
         }
         // Guaranteed potion in trap room
@@ -1379,7 +1488,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function placeCampfire() {
     // 50% chance to spawn a campfire in the safe (start) room.
-    if (Math.random() >= 0.5) return;
+    if (!rollChance(0.5)) return;
 
     const s = rooms.find((r) => r.type === "start") || rooms[0];
     if (!s) return;
@@ -1440,8 +1549,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (added >= extraBudget) break;
       const k = keyOf(i, j);
       if (edges.has(k)) continue;
-      const chance = d < 20 ? 0.18 : d < 35 ? 0.08 : 0.03;
-      if (Math.random() < chance) {
+      const edgeChance = d < 20 ? 0.18 : d < 35 ? 0.08 : 0.03;
+      if (rollChance(edgeChance)) {
         edges.add(k);
         added++;
       }
@@ -1455,7 +1564,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const second = startNeighbors[1]?.[0];
       const third = startNeighbors[2]?.[0];
       if (second != null) edges.add(keyOf(0, second));
-      if (third != null && Math.random() < 0.5) edges.add(keyOf(0, third));
+      if (third != null && rollChance(0.5)) edges.add(keyOf(0, third));
     }
 
     // Carve edges into corridors.
@@ -1473,17 +1582,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const bx = Math.floor(b.x + b.w / 2);
     const by = Math.floor(b.y + b.h / 2);
 
-    const horizFirst = Math.random() < 0.5;
+    const horizFirst = rollChance(0.5);
     const carveH = (y, x1, x2) => {
       for (let x = Math.min(x1, x2); x <= Math.max(x1, x2); x++) {
         map[`${x},${y}`] = ".";
-        if (Math.random() < 0.85) map[`${x},${y + 1}`] = "."; // occasional 2-wide halls
+        if (rollChance(0.85)) map[`${x},${y + 1}`] = "."; // occasional 2-wide halls
       }
     };
     const carveV = (x, y1, y2) => {
       for (let y = Math.min(y1, y2); y <= Math.max(y1, y2); y++) {
         map[`${x},${y}`] = ".";
-        if (Math.random() < 0.85) map[`${x + 1},${y}`] = ".";
+        if (rollChance(0.85)) map[`${x + 1},${y}`] = ".";
       }
     };
 
@@ -1499,15 +1608,15 @@ document.addEventListener("DOMContentLoaded", () => {
   function getEnemyTypeForFloor() {
     // Enemy type selection based on floor
     if (floor >= 15) {
-      return Math.random() < 0.4 ? ORC : (Math.random() < 0.5 ? SKELETON : GOBLIN);
+      return rollChance(0.4) ? ORC : (rollChance(0.5) ? SKELETON : GOBLIN);
     } else if (floor >= 10) {
-      return Math.random() < 0.5 ? SKELETON : GOBLIN;
+      return rollChance(0.5) ? SKELETON : GOBLIN;
     } else if (floor >= 7) {
-      return Math.random() < 0.3 ? SKELETON : (Math.random() < 0.5 ? GOBLIN : BAT);
+      return rollChance(0.3) ? SKELETON : (rollChance(0.5) ? GOBLIN : BAT);
     } else if (floor >= 5) {
-      return Math.random() < 0.4 ? GOBLIN : (Math.random() < 0.5 ? BAT : RAT);
+      return rollChance(0.4) ? GOBLIN : (rollChance(0.5) ? BAT : RAT);
     } else if (floor >= 3) {
-      return Math.random() < 0.3 ? BAT : RAT;
+      return rollChance(0.3) ? BAT : RAT;
     } else {
       return RAT;
     }
@@ -1584,7 +1693,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function spawnPotion(x, y, w, h) {
-    if (Math.random() >= 0.05) return;
+    if (!rollChance(0.05)) return;
 
     const p = POTIONS[rand(0, POTIONS.length - 1)];
 
@@ -1624,12 +1733,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const eligibleRooms = rooms.filter((r) => r.type === "enemy");
     if (!eligibleRooms.length) return;
 
-    if (Math.random() < 0.15 && eligibleRooms.length > 0) {
+    if (rollChance(0.15) && eligibleRooms.length > 0) {
       const idx = rand(0, eligibleRooms.length - 1);
       eligibleRooms[idx].type = "treasure";
     }
     
-    if (Math.random() < 0.10 && eligibleRooms.length > 0) {
+    if (rollChance(0.10) && eligibleRooms.length > 0) {
       const idx = rand(0, eligibleRooms.length - 1);
       if (eligibleRooms[idx].type === "enemy") {
         eligibleRooms[idx].type = "trap";
@@ -1637,7 +1746,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     // 5% chance for shop room
-    if (Math.random() < 0.05 && eligibleRooms.length > 0) {
+    if (rollChance(0.05) && eligibleRooms.length > 0) {
       const idx = rand(0, eligibleRooms.length - 1);
       if (eligibleRooms[idx].type === "enemy") {
         eligibleRooms[idx].type = "shop";
@@ -1674,7 +1783,7 @@ document.addEventListener("DOMContentLoaded", () => {
     for (let i = 0; i < trapCount; i++) {
       const r = eligibleRooms[rand(0, eligibleRooms.length - 1)];
       const trap = TRAP_TYPES[rand(0, TRAP_TYPES.length - 1)];
-      const hidden = Math.random() < 0.45;
+      const hidden = rollChance(0.45);
 
       let placed = false;
       for (let attempt = 0; attempt < 80; attempt++) {
@@ -1686,7 +1795,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (enemies.some((e) => e.x === x && e.y === y)) continue;
 
         map[`${key}_trap`] = { ...trap, hidden };
-        if (!hidden) map[key] = "~";
+        if (hidden) hiddenTrapCount++;
+        else map[key] = "~";
         placed = true;
         break;
       }
@@ -1697,7 +1807,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function shouldHaveHiddenRoomOnFloor(f) {
     if (f === 1) return true;
-    return Math.random() < 0.1;
+    return rollChance(0.1);
   }
 
   function generateHiddenRoom() {
@@ -1827,6 +1937,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (trapKey === potionKey) continue;
       map[`${trapKey}_trap`] = makeHiddenTrap();
+      hiddenTrapCount++;
 
       hiddenArea = {
         revealed: false,
@@ -1913,6 +2024,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (targetKind === "player") floorStats.trapsTriggered++;
 
+    if (trap.hidden) hiddenTrapCount = Math.max(0, hiddenTrapCount - 1);
     delete map[`${key}_trap`];
     map[key] = ".";
     return true;
@@ -1963,14 +2075,13 @@ document.addEventListener("DOMContentLoaded", () => {
         if (stepX) options.push({ x: mouse.x + stepX, y: mouse.y });
         if (stepY) options.push({ x: mouse.x, y: mouse.y + stepY });
         // If the greedy step is blocked, try the other axis, then random.
-        options.push(
-          ...[
-            { x: mouse.x + 1, y: mouse.y },
-            { x: mouse.x - 1, y: mouse.y },
-            { x: mouse.x, y: mouse.y + 1 },
-            { x: mouse.x, y: mouse.y - 1 },
-          ].sort(() => Math.random() - 0.5),
-        );
+        const rnd = shuffleInPlace([
+          { x: mouse.x + 1, y: mouse.y },
+          { x: mouse.x - 1, y: mouse.y },
+          { x: mouse.x, y: mouse.y + 1 },
+          { x: mouse.x, y: mouse.y - 1 },
+        ]);
+        options.push(...rnd);
 
         for (const c of options) {
           if (canMouseMoveTo(c.x, c.y)) {
@@ -1980,12 +2091,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
     } else {
-      const dirs = [
+      const dirs = shuffleInPlace([
         { x: mouse.x + 1, y: mouse.y },
         { x: mouse.x - 1, y: mouse.y },
         { x: mouse.x, y: mouse.y + 1 },
         { x: mouse.x, y: mouse.y - 1 },
-      ].sort(() => Math.random() - 0.5);
+      ]);
 
       for (const c of dirs) {
         if (canMouseMoveTo(c.x, c.y)) {
@@ -2021,7 +2132,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Check slow status
       const slow = e.statusEffects?.slow;
-      if (slow && slow.turns > 0 && Math.random() < 0.5) {
+      if (slow && slow.turns > 0 && rollChance(0.5)) {
         tickStatusEffects(e, "enemy");
         continue; // Skip turn when slowed
       }
@@ -2030,7 +2141,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Check invisibility - enemies can't see invisible players
         if (player.statusEffects?.invisibility?.turns) {
           // 80% chance to miss, 20% chance enemy still detects you
-          if (Math.random() < 0.8) {
+          if (rollChance(0.8)) {
             tickStatusEffects(e, "enemy");
             continue; // Miss due to invisibility
           } else {
@@ -2045,7 +2156,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         
         let rolled = rollBellInt(0, e.dmg);
-        const crit = Math.random() < 0.05;
+        const crit = rollChance(0.05);
         if (crit && rolled > 0) {
           rolled = Math.floor(rolled * 1.5);
           addLog(`${eName} CRITICAL HIT! ${rolled} damage!`, "enemy");
@@ -2123,7 +2234,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
           }
         } else {
-          const dirs = [
+          const dirs = shuffleInPlace([
             [1, 0],
             [-1, 0],
             [0, 1],
@@ -2132,7 +2243,7 @@ document.addEventListener("DOMContentLoaded", () => {
             [1, -1],
             [-1, 1],
             [-1, -1],
-          ].sort(() => Math.random() - 0.5);
+          ]);
 
           for (const [mx, my] of dirs) {
             const nx = e.x + mx;
@@ -2202,8 +2313,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (enemy) {
       // Critical hits & misses
       let dealt = rollBellInt(0, player.dmg);
-      const crit = Math.random() < 0.1; // 10% crit chance
-      const miss = Math.random() < 0.05; // 5% miss chance
+      const crit = rollChance(0.1); // 10% crit chance
+      const miss = rollChance(0.05); // 5% miss chance
       
       if (miss) {
         dealt = 0;
@@ -2243,11 +2354,11 @@ document.addEventListener("DOMContentLoaded", () => {
         else if (player.combo > 0 && player.combo % 5 === 0) addLog(`${player.combo} kills!`, "loot");
 
         // Rat meat drop (rats only).
-        if ((enemy?.name || "").toLowerCase().includes("rat") && Math.random() < 0.2 && !map[`${nx},${ny}_loot`]) {
+        if ((enemy?.name || "").toLowerCase().includes("rat") && rollChance(0.2) && !map[`${nx},${ny}_loot`]) {
           map[`${nx},${ny}`] = RAT_MEAT.symbol;
           map[`${nx},${ny}_loot`] = RAT_MEAT;
           addLog("Rat dropped meat", "loot");
-        } else if (Math.random() < 0.05 || (player.combo >= 3 && Math.random() < 0.15)) {
+        } else if (rollChance(0.05) || (player.combo >= 3 && rollChance(0.15))) {
           // Better drop rate on combo
           const p = POTIONS[rand(0, POTIONS.length - 1)];
           map[`${nx},${ny}`] = "P";
@@ -2262,7 +2373,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // Speed boost allows double move occasionally
       const speedBoost = player.statusEffects?.speed;
       let moves = 1;
-      if (speedBoost && speedBoost.turns > 0 && Math.random() < 0.3) {
+      if (speedBoost && speedBoost.turns > 0 && rollChance(0.3)) {
         moves = 2;
       }
       
@@ -2623,6 +2734,22 @@ document.addEventListener("DOMContentLoaded", () => {
         <div style="margin-top: 10px;">Shop Items:</div>
         <div class="menu-inventory">${buttons}</div>
       </div>`;
+    } else if (activeTab === "help") {
+      content = `<div class="menu-log" style="text-align:left;">
+        <div class="log-line" style="color: var(--accent); font-weight: bold;">Controls</div>
+        <div class="log-line">- Tap a tile to auto-walk there (pathfinding).</div>
+        <div class="log-line">- Tap <b>●</b> to open/close the menu (pauses).</div>
+        <div class="log-line">- Tap <b>?</b> to arm Investigate, then tap a tile to inspect it.</div>
+        <div class="log-line">- Pinch with 2 fingers to zoom the view in/out.</div>
+        <div class="log-line" style="color: var(--accent); font-weight: bold; margin-top:6px;">Keyboard (desktop)</div>
+        <div class="log-line">- Move: WASD / Arrow keys</div>
+        <div class="log-line">- Diagonals: Q/E/Z/C</div>
+        <div class="log-line">- Menu: M, Inventory: I, Close: Escape</div>
+        <div class="log-line" style="color: var(--accent); font-weight: bold; margin-top:6px;">Tips</div>
+        <div class="log-line">- Hidden traps flash briefly—watch the floor.</div>
+        <div class="log-line">- If a mouse panics, it may be hinting at a false wall.</div>
+        <div class="log-line">- You can cook raw food at campfires.</div>
+      </div>`;
     } else if (activeTab === "settings") {
       const highScore = localStorage.getItem("dungeonHighScore") || 0;
       content = `<div class="menu-status">
@@ -2661,6 +2788,7 @@ document.addEventListener("DOMContentLoaded", () => {
           ${tabBtn("status", "Status")}
           ${cookingAtCampfire ? tabBtn("cook", "Cook") : ""}
           ${atShop ? tabBtn("shop", "Shop") : ""}
+          ${tabBtn("help", "Help")}
           ${tabBtn("settings", "Settings")}
           ${tabBtn("log", "Log")}
           ${actionBtn("quit-to-menu", "Quit to Menu")}
@@ -2988,17 +3116,28 @@ document.addEventListener("DOMContentLoaded", () => {
           buyShopItem(Number(btn.dataset.buyItem));
           return;
         }
+      });
 
-        if (btn.dataset.setting) {
-          settings[btn.dataset.setting] = btn.checked;
-          window.gameSettings = settings; // Update global reference
+      // Settings toggles in the in-game menu are <input type="checkbox"> elements.
+      gameEl.addEventListener("change", (e) => {
+        if (!menuOpen) return;
+        const input = e.target.closest?.("input[data-setting]");
+        if (!input) return;
+        const key = input.dataset.setting;
+        if (!key) return;
+
+        settings[key] = !!input.checked;
+        window.gameSettings = settings; // Update global reference
+        try {
           localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
-          if (settings.autoSave && btn.dataset.setting !== "autoSave") {
-            setTimeout(() => saveGame(), 100);
-          }
-          draw();
-          return;
+        } catch {
+          // ignore
         }
+
+        if (settings.autoSave && key !== "autoSave") {
+          setTimeout(() => saveGame("Auto-save"), 100);
+        }
+        draw();
       });
     }
 
@@ -3068,6 +3207,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // Use defaults
   }
   
+  // Initialize RNG so gameplay logic is deterministic and safe before starting.
+  seedRng(createSeed());
+
   // Expose settings globally for investigation descriptions
   window.gameSettings = settings;
 
@@ -3081,10 +3223,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (mapContainerEl) mapContainerEl.style.display = "none";
     if (controlsEl) controlsEl.style.display = "none";
 
-    // Redraw periodically so hidden trap flashing is visible.
+    // Redraw periodically only when timed visual effects are active (saves battery on mobile).
     window.setInterval(() => {
       if (menuOpen || inMainMenu) return;
-      draw();
+      const mouseHintActive = !!(hiddenArea && !hiddenArea.revealed && (hiddenArea.mouseFlashUntil || 0) > Date.now());
+      if (hiddenTrapCount > 0 || mouseHintActive) draw();
     }, 250);
   } catch (error) {
     console.error("Game initialization error:", error);
