@@ -729,6 +729,28 @@ function setInventorySort(mode) {
 }
 window.setInventorySort = setInventorySort;
 
+
+function adjustDifficulty(key, delta) {
+  const k = String(key || "");
+  const d = Number(delta || 0);
+  if (!Number.isFinite(d) || !k) return;
+  const allowed = new Set(["enemyHpMult", "enemyDmgMult", "lootMult", "hazardMult", "propDensity", "screenShakeIntensity"]);
+  if (!allowed.has(k)) return;
+  settings.difficultyPreset = "custom";
+  const cur = Number(settings[k] || 1);
+  const next = clamp(cur + d, 0, 3);
+  settings[k] = k === "screenShakeIntensity" ? clamp(next, 0.3, 2) : next;
+  window.gameSettings = settings;
+  try {
+    localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
+  } catch {
+    // ignore
+  }
+  draw();
+}
+window.adjustDifficulty = adjustDifficulty;
+
+
 function resetRunStats() {
   runStats = {
     startedAt: Date.now(),
@@ -825,10 +847,16 @@ function flashGame(filterCss = "brightness(1.35)") {
 
 // Difficulty presets (applied to multipliers in settings).
 const DIFFICULTY_PRESETS = Object.freeze({
+
   // Risk/reward: easier runs yield less loot.
   easy: { enemyHpMult: 0.85, enemyDmgMult: 0.8, lootMult: 0.85, hazardMult: 0.85, propDensity: 0.9 },
   normal: { enemyHpMult: 1, enemyDmgMult: 1, lootMult: 1, hazardMult: 1, propDensity: 1 },
   hard: { enemyHpMult: 1.2, enemyDmgMult: 1.25, lootMult: 1.15, hazardMult: 1.25, propDensity: 1.1 },
+
+  easy: { enemyHpMult: 0.85, enemyDmgMult: 0.8, lootMult: 1.15, hazardMult: 0.85, propDensity: 1.1 },
+  normal: { enemyHpMult: 1, enemyDmgMult: 1, lootMult: 1, hazardMult: 1, propDensity: 1 },
+  hard: { enemyHpMult: 1.2, enemyDmgMult: 1.25, lootMult: 0.95, hazardMult: 1.25, propDensity: 1.1 },
+
 });
 
 function applyDifficultyPreset(presetId) {
@@ -2521,7 +2549,12 @@ function isPlayerWalkable(x, y) {
   // Hidden area tiles block movement until revealed, except the entrance false-wall tiles.
   if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k) && !hiddenArea.falseWalls?.has(k)) return false;
 
+
   // Enemies block movement.
+
+  const tile = tileAtKey(k);
+  if (!isWalkableTile(tile)) return false;
+
   if (enemies.some((e) => e.x === x && e.y === y)) return false;
 
   // Props are solid until smashed.
