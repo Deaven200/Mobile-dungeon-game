@@ -4,14 +4,17 @@ This is a mobile-friendly ASCII dungeon roguelike that runs in the browser, and 
 
 ## Play / Install (shareable links)
 
+- **Play in browser (GitHub Pages)**: `https://<user>.github.io/<repo>/`
+- **Download as a ZIP**: `https://github.com/<user>/<repo>/archive/refs/heads/main.zip`
+
+Replace `<user>` and `<repo>` with your GitHub username + repository name once you publish it.
+
+### Copy/paste links for this repo
+
 - **Play in browser (GitHub Pages)**: `https://deaven200.github.io/Mobile-dungeon-game/`
 - **Download as a ZIP**: `https://github.com/Deaven200/Mobile-dungeon-game/archive/refs/heads/main.zip`
 
-These are **copy/paste** links. (The GitHub Pages link will work after Pages is enabled and the workflow finishes.)
-
-If you fork this repo, your links will look like:
-- `https://<user>.github.io/<repo>/`
-- `https://github.com/<user>/<repo>/archive/refs/heads/main.zip`
+(The GitHub Pages link will work after Pages is enabled and the workflow finishes.)
 
 ## What is the game?
 
