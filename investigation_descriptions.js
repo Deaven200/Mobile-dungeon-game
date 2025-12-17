@@ -262,7 +262,7 @@
   }
 
   // Public API: keep script.js small.
-  // info.kind can be: player, wall, falseWall, floor, grass, mouse, enemy, potion, food, trap, trapdoor, entrance, upstairs, campfire, shop
+
   window.getInvestigationDescription = function getInvestigationDescription(info) {
     const kind = String(info?.kind || "").toLowerCase();
 
