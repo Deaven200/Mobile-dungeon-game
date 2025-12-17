@@ -316,6 +316,16 @@ function bindInputs() {
         return;
       }
 
+      if (btn.dataset.equipMain != null) {
+        equipToHand("main", Number(btn.dataset.equipMain));
+        return;
+      }
+
+      if (btn.dataset.unequipHand != null) {
+        unequipHand(btn.dataset.unequipHand);
+        return;
+      }
+
       if (btn.dataset.buyItem != null) {
         buyShopItem(Number(btn.dataset.buyItem));
         return;

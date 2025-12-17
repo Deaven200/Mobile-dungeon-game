@@ -137,7 +137,12 @@ function move(dx, dy) {
 
   if (enemy) {
     // Critical hits & misses
-    let dealt = rollBellInt(0, player.dmg);
+    const unarmedMax = 2;
+    const weapon = player?.hands?.main && String(player.hands.main.effect || "") === "weapon" ? player.hands.main : null;
+    const weaponMax = weapon ? Math.max(1, Math.floor(Number(weapon.maxDamage || 1))) : null;
+    const bonus = Math.max(0, Math.floor(Number(player.dmg || 0))); // strength bonus
+    const maxDmg = weaponMax != null ? weaponMax + bonus : unarmedMax + bonus;
+    let dealt = rollBellInt(0, maxDmg);
     const crit = rollChance(0.1); // 10% crit chance
     const miss = rollChance(0.05); // 5% miss chance
     

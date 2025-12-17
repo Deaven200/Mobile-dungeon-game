@@ -10,6 +10,12 @@ function useInventoryItem(i) {
     playSound?.("menu");
     return;
   }
+  // Weapons are equipped, not used.
+  if (p.effect === "weapon") {
+    addLog("Weapons must be equipped (Inventory).", "info");
+    playSound?.("menu");
+    return;
+  }
 
   if (p.effect === "fullHeal") {
     player.maxHp += p.value;

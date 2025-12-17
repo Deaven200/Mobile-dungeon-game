@@ -66,10 +66,12 @@ let player = {
   y: 0,
   hp: 10,
   maxHp: 10,
-  dmg: 2,
+  // Unarmed base is always 0-2; dmg is a bonus applied to unarmed and weapons.
+  dmg: 0,
   toughness: 0,
   inventory: [],
   maxInventory: 10,
+  hands: { main: null, off: null },
   hunger: 10,
   maxHunger: 10,
   kills: 0,

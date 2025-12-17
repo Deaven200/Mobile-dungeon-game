@@ -76,7 +76,11 @@ function renderMenuHtml() {
     const used = Array.isArray(player.inventory) ? player.inventory.length : 0;
     const items = (Array.isArray(player.inventory) ? player.inventory : []).map((it, idx) => ({ it, idx }));
     const valuables = items.filter(({ it }) => String(it?.effect || "") === "valuable");
-    const consumables = items.filter(({ it }) => String(it?.effect || "") !== "valuable");
+    const weapons = items.filter(({ it }) => String(it?.effect || "") === "weapon");
+    const consumables = items.filter(({ it }) => {
+      const eff = String(it?.effect || "");
+      return eff !== "valuable" && eff !== "weapon";
+    });
 
     const btn = (it, idx, subtitle = "") =>
       `<button type="button" data-use-item="${idx}" class="menu-button" style="color:${it?.color || "cyan"};" title="${escapeHtml(it?.name || "")}">
@@ -86,12 +90,42 @@ function renderMenuHtml() {
     if (!used) {
       content = `<div class="menu-empty">Inventory empty (${used}/${cap || "∞"})</div>`;
     } else {
+      const mainHand = player?.hands?.main;
+      const offHand = player?.hands?.off;
+      const eqLine = (label, it, handKey) => {
+        if (!it) return `<div>${escapeHtml(label)}: <span style="opacity:0.7;">(empty)</span></div>`;
+        const meta = it?.effect === "weapon" ? ` 0-${Number(it?.maxDamage || 0)}` : "";
+        return `<div>${escapeHtml(label)}: <span style="color:${it?.color || "cyan"};">${escapeHtml(it?.name || "Item")}${escapeHtml(
+          meta,
+        )}</span> <button type="button" data-unequip-hand="${escapeHtml(handKey)}" style="margin-left:8px;">Unequip</button></div>`;
+      };
+
       const top = `<div class="menu-status" style="margin-bottom: 10px;">Inventory: ${used}/${cap || "∞"}</div>`;
+
+      const equipTop = `<div class="menu-status" style="margin-bottom: 10px; text-align:left;">
+        <div style="font-weight:700; color: var(--accent); margin-bottom: 6px;">Hands</div>
+        ${eqLine("Main hand", mainHand, "main")}
+        ${eqLine("Off hand", offHand, "off")}
+      </div>`;
+
       const consHtml = consumables.length
         ? `<div class="menu-status" style="margin: 6px 0 4px; opacity:0.9;">Consumables</div><div class="menu-inventory">${consumables
             .map(({ it, idx }) => btn(it, idx))
             .join("")}</div>`
         : `<div class="menu-empty">No consumables</div>`;
+
+      const wepHtml = weapons.length
+        ? `<div class="menu-status" style="margin: 10px 0 4px; opacity:0.9;">Weapons (tap to equip)</div><div class="menu-inventory">${weapons
+            .map(({ it, idx }) => {
+              const subtitle = `Lv ${Number(it?.level || 1)} • ${String(it?.rarity || "trash")} • 0-${Number(it?.maxDamage || 0)}`;
+              return `<button type="button" data-equip-main="${idx}" class="menu-button" style="color:${it?.color || "cyan"};" title="${escapeHtml(
+                it?.name || "",
+              )}">
+                ${escapeHtml(it?.name || "Weapon")}<br><small style="opacity:0.75;">${escapeHtml(subtitle)}</small><br><small style="opacity:0.7;">Equip main</small>
+              </button>`;
+            })
+            .join("")}</div>`
+        : `<div class="menu-empty">No weapons</div>`;
 
       const valHtml = valuables.length
         ? `<div class="menu-status" style="margin: 10px 0 4px; opacity:0.9;">Valuables (sell at a shop)</div><div class="menu-inventory">${valuables
@@ -99,7 +133,7 @@ function renderMenuHtml() {
             .join("")}</div>`
         : `<div class="menu-empty">No valuables</div>`;
 
-      content = `${top}${consHtml}${valHtml}`;
+      content = `${top}${equipTop}${wepHtml}${consHtml}${valHtml}`;
     }
   } else if (activeTab === "status") {
     const burning = getBurning(player);
@@ -122,7 +156,12 @@ function renderMenuHtml() {
       Name: ${nameLabel}<br>
       Talent: ${escapeHtml(String(talentLabel))}<br><br>
       HP ${player.hp}/${player.maxHp}<br>
-      DMG 0-${player.dmg}<br>
+      DMG: ${(() => {
+        const unarmedMax = 2 + Math.max(0, Math.floor(Number(player.dmg || 0)));
+        const w = player?.hands?.main && String(player.hands.main.effect || "") === "weapon" ? player.hands.main : null;
+        const wMax = w ? Math.max(1, Math.floor(Number(w.maxDamage || 1))) + Math.max(0, Math.floor(Number(player.dmg || 0))) : null;
+        return wMax != null ? `0-${wMax} (armed)` : `0-${unarmedMax} (unarmed)`;
+      })()}<br>
       Tough ${player.toughness}<br>
       Inventory ${player.inventory?.length || 0}/${player.maxInventory || "∞"}<br>
       Gold: ${player.gold || 0}<br>

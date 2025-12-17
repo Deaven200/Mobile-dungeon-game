@@ -9,6 +9,57 @@ const POTIONS = [
   { name: "Explosive Potion", effect: "explosive", value: 3, symbol: "P", color: "#ff8800" },
 ];
 
+const RARITIES = [
+  { id: "trash", label: "Trash", color: "#9e9e9e", bonus: 0, weight: 52 },
+  { id: "common", label: "Common", color: "#cfd8dc", bonus: 1, weight: 28 },
+  { id: "uncommon", label: "Uncommon", color: "#4caf50", bonus: 2, weight: 14 },
+  { id: "rare", label: "Rare", color: "#2196f3", bonus: 3, weight: 5 },
+  { id: "legendary", label: "Legendary", color: "#ff9800", bonus: 5, weight: 1 },
+];
+
+function pickRarityForFloor(f) {
+  // Better odds deeper, but level will still dominate damage.
+  const floorNum = Math.max(1, Number(f || 1));
+  const bump = Math.min(12, Math.floor(floorNum / 6)); // slowly increases rare odds
+  const pool = RARITIES.map((r) => {
+    const w = Number(r.weight || 0);
+    const rareBoost = (r.id === "rare" ? bump * 0.4 : r.id === "legendary" ? bump * 0.2 : 0);
+    const trashDrop = r.id === "trash" ? bump * 1.0 : 0;
+    return { ...r, w: Math.max(0, Math.floor(w + rareBoost - trashDrop)) };
+  }).filter((r) => r.w > 0);
+  const total = pool.reduce((a, r) => a + r.w, 0);
+  let roll = rand(1, Math.max(1, total));
+  for (const r of pool) {
+    roll -= r.w;
+    if (roll <= 0) return r;
+  }
+  return pool[0] || RARITIES[0];
+}
+
+function calcWeaponMaxDamage(level, rarityId) {
+  const lvl = Math.max(1, Math.floor(Number(level || 1)));
+  const rar = (Array.isArray(RARITIES) ? RARITIES.find((r) => r.id === rarityId) : null) || RARITIES[0];
+  // Level is the base damage; rarity adds a small bonus.
+  return Math.max(1, lvl + Math.max(0, Number(rar.bonus || 0)));
+}
+
+function makeSword(level, rarity = null) {
+  const rar = rarity || pickRarityForFloor(level);
+  const lvl = Math.max(1, Math.floor(Number(level || 1)));
+  const maxDmg = calcWeaponMaxDamage(lvl, rar.id);
+  return {
+    name: `${rar.label} Sword +${lvl}`,
+    effect: "weapon",
+    weaponType: "sword",
+    slot: "hand",
+    rarity: rar.id,
+    level: lvl,
+    maxDamage: maxDmg,
+    symbol: "/",
+    color: rar.color,
+  };
+}
+
 // Valuables: can’t be used in-dungeon; meant to be sold after you extract.
 // Keep the symbols ASCII so monospace rendering stays consistent.
 const VALUABLES = [

@@ -757,6 +757,56 @@ function buyUpgrade(kind) {
   draw();
 }
 
+function isHandItem(item) {
+  return item && String(item.effect || "") === "weapon" && String(item.slot || "") === "hand";
+}
+
+function equipToHand(hand, invIndex) {
+  const h = String(hand || "");
+  if (h !== "main" && h !== "off") return;
+  const idx = Number(invIndex);
+  if (!Number.isFinite(idx)) return;
+  const it = player.inventory?.[idx];
+  if (!isHandItem(it)) {
+    addLog("That doesn't fit in your hand.", "block");
+    return;
+  }
+
+  if (!player.hands || typeof player.hands !== "object") player.hands = { main: null, off: null };
+
+  // Swap with whatever is in the slot.
+  const prev = player.hands[h] || null;
+  player.hands[h] = it;
+  // Remove from inventory
+  player.inventory.splice(idx, 1);
+  // Put previous back in inventory if it existed
+  if (prev) player.inventory.push(prev);
+
+  addLog(`Equipped: ${it.name} (${h} hand)`, "loot");
+  playSound?.("menu");
+  draw();
+}
+
+function unequipHand(hand) {
+  const h = String(hand || "");
+  if (h !== "main" && h !== "off") return;
+  if (!player.hands || typeof player.hands !== "object") player.hands = { main: null, off: null };
+  const it = player.hands[h];
+  if (!it) return;
+
+  const cap = Math.max(0, Number(player.maxInventory ?? 10));
+  if (cap && (player.inventory?.length || 0) >= cap) {
+    addLog("Inventory full", "block");
+    return;
+  }
+
+  player.hands[h] = null;
+  player.inventory.push(it);
+  addLog(`Unequipped: ${it.name}`, "info");
+  playSound?.("menu");
+  draw();
+}
+
 function buyShopItem(shopIndex) {
   if (!atShop) return;
   const idx = Number(shopIndex);
@@ -1145,6 +1195,9 @@ function loadGame(saveId = null) {
     if (!Number.isFinite(player.gear.weapon)) player.gear.weapon = 0;
     if (!Number.isFinite(player.gear.armor)) player.gear.armor = 0;
     if (!Number.isFinite(player.gear.pack)) player.gear.pack = 0;
+    if (!player.hands || typeof player.hands !== "object") player.hands = { main: null, off: null };
+    if (!("main" in player.hands)) player.hands.main = null;
+    if (!("off" in player.hands)) player.hands.off = null;
     floor = saveData.floor || floor;
 
     // Restore full game state if present.
@@ -1298,10 +1351,11 @@ function startGame(options = {}) {
       y: 0,
       hp: 10,
       maxHp: 10,
-      dmg: 2,
+      dmg: 0,
       toughness: 0,
       inventory: [],
       maxInventory: 10,
+      hands: { main: null, off: null },
       hunger: 10,
       maxHunger: 10,
       kills: 0,

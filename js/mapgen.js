@@ -203,6 +203,7 @@ function generateFloor() {
       spawnEnemies(r.x, r.y, r.w, r.h);
       spawnPotion(r.x, r.y, r.w, r.h);
       spawnValuable(r.x, r.y, r.w, r.h, 0.07);
+      spawnSword(r.x, r.y, r.w, r.h, 0.06);
       // Sometimes spawn food in enemy rooms too
       if (rollChance(0.15)) spawnFood(r.x, r.y, r.w, r.h);
     } else if (r.type === "boss") {
@@ -212,12 +213,15 @@ function generateFloor() {
       if (rollChance(0.8)) spawnPotion(r.x, r.y, r.w, r.h);
       // Boss room should feel “worth it”
       for (let i = 0; i < rand(1, 2); i++) spawnValuable(r.x, r.y, r.w, r.h, 1.0);
+      // Boss drop: guaranteed sword
+      spawnSword(r.x, r.y, r.w, r.h, 1.0);
     } else if (r.type === "treasure") {
       // Treasure room: lots of loot, no enemies
       for (let i = 0; i < rand(2, 4); i++) {
         spawnPotion(r.x, r.y, r.w, r.h);
       }
       for (let i = 0; i < rand(1, 3); i++) spawnValuable(r.x, r.y, r.w, r.h, 1.0);
+      for (let i = 0; i < rand(1, 2); i++) spawnSword(r.x, r.y, r.w, r.h, 1.0);
       // Spawn food in treasure rooms (higher chance)
       if (rollChance(0.7)) spawnFood(r.x, r.y, r.w, r.h);
     } else if (r.type === "trap") {
@@ -237,6 +241,7 @@ function generateFloor() {
       // Guaranteed potion in trap room
       spawnPotion(r.x, r.y, r.w, r.h);
       spawnValuable(r.x, r.y, r.w, r.h, 0.65);
+      spawnSword(r.x, r.y, r.w, r.h, 0.25);
     } else if (r.type === "shop") {
       // Shop room: merchant NPC
       const shopX = Math.floor(r.x + r.w / 2);
@@ -571,6 +576,33 @@ function spawnValuable(x, y, w, h, chance = 0.08) {
     if (lootAtKey(k) || trapAtKey(k)) continue;
     map[k] = it.symbol;
     setLootAtKey(k, it);
+    return;
+  }
+}
+
+function rollGearLevelForFloor(f) {
+  const floorNum = Math.max(1, Number(f || 1));
+  // Level is the main scaling axis: deeper floors yield higher level gear.
+  // Keep it simple and steady: ~floor +/- small variance.
+  const base = floorNum + rand(-1, 2);
+  return Math.max(1, base);
+}
+
+function spawnSword(x, y, w, h, chance = 0.06) {
+  if (typeof makeSword !== "function") return;
+  if (!rollChance(chance)) return;
+  const lvl = rollGearLevelForFloor(floor);
+  const sword = makeSword(lvl, pickRarityForFloor(floor));
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const sx = rand(x, x + w - 1);
+    const sy = rand(y, y + h - 1);
+    const k = keyOf(sx, sy);
+    if (map[k] !== ".") continue;
+    if (enemies.some((e) => e.x === sx && e.y === sy)) continue;
+    if (lootAtKey(k) || trapAtKey(k)) continue;
+    map[k] = sword.symbol;
+    setLootAtKey(k, sword);
     return;
   }
 }
