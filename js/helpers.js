@@ -669,8 +669,65 @@ function openShopMenu() {
 
 function getItemSellValue(item) {
   if (!item) return 0;
-  if (String(item.effect || "") !== "valuable") return 0;
-  return Math.max(0, Math.floor(Number(item.value || 0)));
+  // Allow selling any item type at the shop.
+  // Note: Many items use `value` for gameplay effects (e.g. potions), so we avoid
+  // treating a generic `value` field as gold unless it's a "valuable".
+  if (Number.isFinite(Number(item.sellValue))) return Math.max(0, Math.floor(Number(item.sellValue)));
+
+  const effect = String(item.effect || "").toLowerCase();
+
+  const rarityMult = (() => {
+    try {
+      if (typeof getRarity === "function") {
+        const rar = getRarity(item.rarity);
+        const m = Number(rar?.mult || 1);
+        return Number.isFinite(m) ? Math.max(0.1, m) : 1;
+      }
+    } catch {
+      // ignore
+    }
+    return 1;
+  })();
+
+  if (effect === "valuable") {
+    // Valuables are authored with baseValue; generated valuables should also have a computed `value`.
+    const explicit = Number(item.value);
+    if (Number.isFinite(explicit)) return Math.max(0, Math.floor(explicit));
+
+    const base = Number(item.baseValue || 0);
+    if (Number.isFinite(base) && base > 0) {
+      if (typeof calcValuableValue === "function") return Math.max(1, Math.floor(calcValuableValue(base, item.rarity)));
+      return Math.max(1, Math.floor(base * rarityMult));
+    }
+    return 0;
+  }
+
+  if (effect === "weapon") {
+    const lvl = Math.max(1, Math.floor(Number(item.level || 1)));
+    const maxDmg = Math.max(1, Math.floor(Number(item.maxDamage || 1)));
+    // Keep weapon resale below "upgrade" prices and scale reasonably with level/rarity.
+    const base = 20 + lvl * 14 + maxDmg * 10;
+    const mult = 0.45 + Math.min(0.7, rarityMult * 0.1); // common ~0.55, legendary ~1.15
+    return Math.max(5, Math.floor(base * mult));
+  }
+
+  if (effect === "food") {
+    const hunger = Math.max(0, Number(item.hunger || 0));
+    const heal = Math.max(0, Number(item.heal || 0));
+    const cookedBonus = item.cooked ? 6 : 0;
+    return Math.max(1, Math.floor(5 + hunger * 4 + heal * 8 + cookedBonus));
+  }
+
+  // Potions / consumables (resale is intentionally worse than buying).
+  if (effect === "fullheal") return 12;
+  if (effect === "damageboost") return 20;
+  if (effect === "toughnessboost") return 27;
+  if (effect === "speed") return 35;
+  if (effect === "invisibility") return 45;
+  if (effect === "explosive") return 55;
+
+  // Fallback for future item types: allow selling for a small amount.
+  return effect ? 5 : 0;
 }
 
 function sellInventoryItem(invIndex) {
@@ -702,12 +759,12 @@ function sellAllValuables() {
     else kept.push(it);
   }
   if (gained <= 0) {
-    addLog("No valuables to sell.", "info");
+    addLog("No items to sell.", "info");
     return;
   }
   player.inventory = kept;
   player.gold = Math.max(0, Number(player.gold || 0) + gained);
-  addLog(`Sold valuables (+${gained} gold)`, "loot");
+  addLog(`Sold items (+${gained} gold)`, "loot");
   playSound?.("loot");
   vibrate([12, 30, 12]);
   draw();
@@ -1016,7 +1073,7 @@ function showEnterDungeonPrompt() {
 function showExitToCourtyardPrompt() {
   showPromptOverlay(
     "Exit to courtyard?",
-    `<div style="opacity:0.9; text-align:center;">Leaving ends this dive. Bring valuables to the courtyard shop to sell for gold.</div>`,
+    `<div style="opacity:0.9; text-align:center;">Leaving ends this dive. Bring loot to the courtyard shop to sell for gold.</div>`,
     [
       {
         id: "exitToCourtyardBtn",

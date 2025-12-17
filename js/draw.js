@@ -207,24 +207,28 @@ function renderMenuHtml() {
     const gold = Number(player.gold || 0);
     const gear = player.gear || { weapon: 0, armor: 0, pack: 0 };
 
-    const valuables = (player.inventory || [])
+    const sellables = (player.inventory || [])
       .map((it, idx) => ({ it, idx }))
-      .filter(({ it }) => String(it?.effect || "") === "valuable")
-      .map(({ it, idx }) => ({ it, idx, sell: Math.max(0, Math.floor(Number(it?.value || 0))) }));
+      .map(({ it, idx }) => ({
+        it,
+        idx,
+        sell: typeof getItemSellValue === "function" ? Math.max(0, Math.floor(Number(getItemSellValue(it) || 0))) : 0,
+      }));
 
     const sellAllBtn =
-      valuables.length > 0
-        ? `<button type="button" data-sell-all="1" class="menu-button" style="color:#ffd700;">Sell All<br><small>+${valuables.reduce(
+      sellables.some((v) => v.sell > 0)
+        ? `<button type="button" data-sell-all="1" class="menu-button" style="color:#ffd700;">Sell All<br><small>+${sellables.reduce(
             (a, v) => a + v.sell,
             0,
           )} gold</small></button>`
         : "";
 
-    const sellButtons = valuables
+    const sellButtons = sellables
+      .filter((v) => v.sell > 0)
       .map(
         ({ it, idx, sell }) =>
           `<button type="button" data-sell-item="${idx}" class="menu-button" style="color:${it?.color || "#ffd700"};${rarityOutlineCss(it)}${sell <= 0 ? "opacity:0.5;" : ""}">
-            ${escapeHtml(it?.name || "Valuable")}<br><small>+${sell} gold</small>
+            ${escapeHtml(it?.name || "Item")}<br><small>+${sell} gold</small>
           </button>`,
       )
       .join("");
@@ -269,8 +273,8 @@ function renderMenuHtml() {
 
     content = `<div class="menu-status">
       <div>Gold: ${gold}</div>
-      <div style="margin-top: 10px; opacity:0.9;">Sell valuables:</div>
-      <div class="menu-inventory">${sellAllBtn}${sellButtons || `<div class="menu-empty">No valuables</div>`}</div>
+      <div style="margin-top: 10px; opacity:0.9;">Sell items:</div>
+      <div class="menu-inventory">${sellAllBtn}${sellButtons || `<div class="menu-empty">No items to sell</div>`}</div>
       <div style="margin-top: 10px; opacity:0.9;">Upgrades:</div>
       <div class="menu-inventory">${upgradesHtml}</div>
       <div style="margin-top: 10px; opacity:0.9;">Consumables:</div>
