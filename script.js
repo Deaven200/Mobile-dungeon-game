@@ -18,7 +18,6 @@ document.addEventListener("DOMContentLoaded", () => {
     showEnemyHealth: true,
     soundEnabled: false,
     autoSave: true,
-    paletteMode: "default", // default | highContrast | colorblind
     haptics: true,
     confirmDescend: true,
   };
@@ -455,8 +454,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const screenX = gRect.left + (dx + viewRadius) * cellW + cellW / 2 - mRect.left;
         const screenY = gRect.top + (dy + viewRadius) * cellH + cellH / 2 - mRect.top;
         
-        const dmgColors = getPalette().damage;
-        const color = dn.type === "player" ? dmgColors.player : dn.type === "crit" ? dmgColors.crit : dmgColors.enemy;
+        const color = dn.type === "player" ? "#00ff00" : dn.type === "crit" ? "#ffff00" : "#ff0000";
         const age = now - dn.time;
         const offsetY = -(age / 1000) * 40;
         const opacity = 1 - age / 1000;
@@ -468,7 +466,16 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function addLog(text, type = "info") {
-    const colors = getPalette().log;
+    const colors = {
+      player: "lime",
+      enemy: "red",
+      loot: "cyan",
+      block: "gray",
+      death: "orange",
+      floor: "violet",
+      danger: "darkred",
+      info: "white",
+    };
 
     const entry = { text, color: colors[type] || "white" };
     logHistory.push(entry);
@@ -1037,14 +1044,6 @@ document.addEventListener("DOMContentLoaded", () => {
             <input type="checkbox" ${settings.autoSave ? "checked" : ""} id="setting-autosave" style="width: 20px; height: 20px;">
             Auto-Save
           </label>
-          <label style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
-            <span>Palette</span>
-            <select id="setting-palette" style="flex: 0 0 auto; padding: 6px 10px; background: rgba(0,0,0,0.75); color: var(--accent); border: 1px solid var(--accent); border-radius: 8px;">
-              <option value="default" ${settings.paletteMode === "default" ? "selected" : ""}>Default</option>
-              <option value="highContrast" ${settings.paletteMode === "highContrast" ? "selected" : ""}>High contrast</option>
-              <option value="colorblind" ${settings.paletteMode === "colorblind" ? "selected" : ""}>Colorblind-friendly</option>
-            </select>
-          </label>
           <label style="display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; margin: 5px 0;">
             <input type="checkbox" ${settings.haptics ? "checked" : ""} id="setting-haptics" style="width: 20px; height: 20px;">
             Haptics (vibration)
@@ -1068,7 +1067,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const damageCheck = document.getElementById("setting-damage");
     const healthCheck = document.getElementById("setting-health");
     const autosaveCheck = document.getElementById("setting-autosave");
-    const paletteSelect = document.getElementById("setting-palette");
     const hapticsCheck = document.getElementById("setting-haptics");
     const confirmDescendCheck = document.getElementById("setting-confirm-descend");
     
@@ -1090,14 +1088,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (autosaveCheck) {
       autosaveCheck.addEventListener("change", (e) => {
         settings.autoSave = e.target.checked;
-        localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
-      });
-    }
-
-    if (paletteSelect) {
-      paletteSelect.addEventListener("change", (e) => {
-        settings.paletteMode = e.target.value;
-        applyPaletteToCss();
         localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
       });
     }
@@ -2744,7 +2734,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const buttons = player.inventory
           .map(
             (p, i) =>
-              `<button type="button" data-use-potion="${i}" class="menu-button" style="color:${getLootColor(p)};">${escapeHtml(
+              `<button type="button" data-use-potion="${i}" class="menu-button" style="color:${p.color};">${escapeHtml(
                 p.name,
               )}</button>`,
           )
@@ -2815,7 +2805,7 @@ document.addEventListener("DOMContentLoaded", () => {
             else if (item.effect === "speed") desc = ` (Speed ${item.turns || 10} turns)`;
             else if (item.effect === "invisibility") desc = ` (Invisible ${item.turns || 5} turns)`;
             else if (item.effect === "explosive") desc = " (AOE Damage)";
-            return `<button type="button" data-buy-item="${item.shopIndex}" class="menu-button" style="color:${getLootColor(item)};${player.score < item.price ? "opacity:0.5;" : ""}" title="${escapeHtml(item.name + desc)}">
+            return `<button type="button" data-buy-item="${item.shopIndex}" class="menu-button" style="color:${item.color};${player.score < item.price ? "opacity:0.5;" : ""}" title="${escapeHtml(item.name + desc)}">
               ${escapeHtml(item.name)}${desc ? `<small style="opacity:0.7;">${escapeHtml(desc)}</small>` : ""}<br><small>${item.price} score</small>
             </button>`;
           },
@@ -2861,14 +2851,6 @@ document.addEventListener("DOMContentLoaded", () => {
           <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
             <input type="checkbox" ${settings.autoSave ? "checked" : ""} data-setting="autoSave" style="width: 20px; height: 20px;">
             Auto-Save
-          </label>
-          <label style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
-            <span>Palette</span>
-            <select data-setting="paletteMode" style="flex: 0 0 auto; padding: 6px 10px; background: rgba(0,0,0,0.75); color: var(--accent); border: 1px solid var(--accent); border-radius: 8px;">
-              <option value="default" ${settings.paletteMode === "default" ? "selected" : ""}>Default</option>
-              <option value="highContrast" ${settings.paletteMode === "highContrast" ? "selected" : ""}>High contrast</option>
-              <option value="colorblind" ${settings.paletteMode === "colorblind" ? "selected" : ""}>Colorblind-friendly</option>
-            </select>
           </label>
           <label style="display: flex; align-items: center; gap: 10px; margin: 8px 0; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
             <input type="checkbox" ${settings.haptics ? "checked" : ""} data-setting="haptics" style="width: 20px; height: 20px;">
@@ -2922,13 +2904,12 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const palette = getPalette();
     const enemyByPos = new Map();
     for (const e of enemies) enemyByPos.set(`${e.x},${e.y}`, e);
 
     const dimCss = "opacity:0.5;";
     const popCss = "font-weight:700;";
-    const burningOutlineCss = `text-shadow: 0 0 3px ${palette.map.trapVisible}, 0 0 6px ${palette.map.trapVisible};`;
+    const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
     const hiddenFlashOn = Date.now() % HIDDEN_TRAP_FLASH_PERIOD_MS < HIDDEN_TRAP_FLASH_PULSE_MS;
     const mouseWallPulseOn = Date.now() % 240 < 120;
 
@@ -2973,7 +2954,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const t = ch === "#" ? "#" : ".";
           pushCell(
             t === "#" ? "#" : ".",
-            `color:${t === "#" ? palette.map.fogWall : palette.map.fogFloor};${dimCss}`,
+            `color:${t === "#" ? "lime" : "#555"};${dimCss}`,
           );
           continue;
         }
@@ -2986,7 +2967,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
             const isFalseWall = hiddenArea.falseWalls?.has(key);
             const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
-            const color = isFalseWall ? (flash ? (mouseWallPulseOn ? palette.map.falseWallA : palette.map.falseWallB) : palette.map.falseWallA) : palette.map.fogWall;
+            const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
             pushCell("#", `color:${color};${dimCss}`);
           } else {
             const ch = map[key] || "#";
@@ -2994,7 +2975,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const t = ch === "#" ? "#" : ".";
             pushCell(
               t === "#" ? "#" : ".",
-              `color:${t === "#" ? palette.map.fogWall : palette.map.fogFloor};${dimCss}`,
+              `color:${t === "#" ? "lime" : "#555"};${dimCss}`,
             );
           }
           continue;
@@ -3002,51 +2983,51 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (tx === player.x && ty === player.y) {
           const extra = `${popCss}${getBurning(player)?.turns ? burningOutlineCss : ""}`;
-          pushCell("@", `color:${palette.map.player};${extra}`);
+          pushCell("@", `color:cyan;${extra}`);
         } else if (enemyByPos.has(key)) {
           const e = enemyByPos.get(key);
           const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
-          pushCell(e.symbol || "E", `color:${getEnemyColor(e)};${extra}`);
+          pushCell(e.symbol || "E", `color:${e.color || "red"};${extra}`);
         } else if (mouse && tx === mouse.x && ty === mouse.y) {
-          pushCell("m", `color:${palette.map.mouse};${popCss}`);
+          pushCell("m", `color:#eee;${popCss}`);
         } else if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
           // Hidden hallway/room are drawn as walls until revealed.
           const isFalseWall = hiddenArea.falseWalls?.has(key);
           const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
-          const color = isFalseWall ? (flash ? (mouseWallPulseOn ? palette.map.falseWallA : palette.map.falseWallB) : palette.map.falseWallA) : palette.map.wall;
+          const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
           pushCell("#", `color:${color};`);
         } else if (map[`${key}_loot`]) {
           const p = map[`${key}_loot`];
-          pushCell(p.symbol, `color:${getLootColor(p)};${popCss}`);
+          pushCell(p.symbol, `color:${p.color || "cyan"};${popCss}`);
         } else {
           const ch = map[key] || "#";
           const trap = map[`${key}_trap`];
           if (trap) {
             if (trap.hidden) {
               // Hidden traps look like floor, but flash orange every few seconds.
-              pushCell(".", `color:${hiddenFlashOn ? palette.map.hiddenTrapFlash : palette.map.floor};`);
+              pushCell(".", `color:${hiddenFlashOn ? "orange" : "#555"};`);
             } else {
-              pushCell("~", `color:${getTrapColor(trap)};`);
+              pushCell("~", `color:${trap.color || "orange"};`);
             }
-          } else if (ch === ".") pushCell(".", `color:${palette.map.floor};`); // floor
-          else if (ch === "~") pushCell("~", `color:${palette.map.trapVisible};`); // fallback
-          else if (ch === "#") pushCell("#", `color:${palette.map.wall};`); // wall
+          } else if (ch === ".") pushCell(".", "color:#555;"); // floor
+          else if (ch === "~") pushCell("~", "color:orange;"); // fallback
+          else if (ch === "#") pushCell("#", "color:lime;"); // wall
           else if (ch === "T") {
             // Only show trapdoor if no enemy is on it
             if (!enemyByPos.has(key)) {
-              pushCell("T", `color:${palette.map.trapdoor};${popCss}`); // trapdoor
+              pushCell("T", `color:#00ff3a;${popCss}`); // trapdoor
             } else {
               // Enemy is on trapdoor, show enemy instead
               const e = enemyByPos.get(key);
               const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
               const isBoss = e.symbol && e.symbol === e.symbol.toUpperCase() && e.symbol !== e.symbol.toLowerCase();
               const bossGlow = isBoss ? "text-shadow: 0 0 4px #ff0000, 0 0 8px #ff0000;" : "";
-              pushCell(e.symbol || "E", `color:${getEnemyColor(e)};${extra}${bossGlow}`);
+              pushCell(e.symbol || "E", `color:${e.color || "red"};${extra}${bossGlow}`);
             }
           }
-          else if (ch === "C") pushCell("C", `color:${palette.map.campfire};${popCss}`); // campfire
-          else if (ch === "$") pushCell("$", `color:${palette.map.shop};${popCss}`); // shop
-          else pushCell(ch, `color:${palette.map.unknown};`);
+          else if (ch === "C") pushCell("C", `color:orange;${popCss}`); // campfire
+          else if (ch === "$") pushCell("$", `color:#ffd700;${popCss}`); // shop
+          else pushCell(ch, "color:white;");
         }
       }
       flush();
@@ -3261,11 +3242,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const key = el.dataset.setting;
         if (!key) return;
 
-        if (el.tagName === "SELECT") {
-          settings[key] = String(el.value || "default");
-        } else {
-          settings[key] = !!el.checked;
-        }
+        settings[key] = !!el.checked;
         window.gameSettings = settings; // Update global reference
         try {
           localStorage.setItem("dungeonGameSettings", JSON.stringify(settings));
@@ -3273,9 +3250,6 @@ document.addEventListener("DOMContentLoaded", () => {
           // ignore
         }
 
-        if (key === "paletteMode") {
-          applyPaletteToCss();
-        }
         if (key === "haptics" && settings.haptics) {
           vibrate(10);
         }
@@ -3343,222 +3317,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /* ===================== INIT ===================== */
 
-  /* ===================== ACCESSIBILITY / UX HELPERS ===================== */
-
-  function getPaletteName() {
-    const v = String(settings?.paletteMode || "default");
-    if (v === "highContrast") return "highContrast";
-    if (v === "colorblind") return "colorblind";
-    return "default";
-  }
-
-  function getPalette() {
-    // Default colors roughly match the current look.
-    const palettes = {
-      default: {
-        ui: { bg: "#000000", fg: "#00ff00", accent: "#00ffff" },
-        map: {
-          player: "cyan",
-          wall: "lime",
-          floor: "#555",
-          fogWall: "lime",
-          fogFloor: "#555",
-          mouse: "#eee",
-          trapVisible: "orange",
-          hiddenTrapFlash: "orange",
-          trapdoor: "#00ff3a",
-          campfire: "orange",
-          shop: "#ffd700",
-          unknown: "white",
-          falseWallA: "#0a0",
-          falseWallB: "#070",
-        },
-        enemies: {
-          rat: "#bdbdbd",
-          goblin: "#00ff3a",
-          bat: "#a055a0",
-          skeleton: "#ffffff",
-          orc: "#8b4513",
-        },
-        loot: {
-          health: "#ff3b3b",
-          strength: "#ffe600",
-          toughness: "#cfcfcf",
-          speed: "#00ffff",
-          invisibility: "#8888ff",
-          explosive: "#ff8800",
-          food: "#ffd6a6",
-        },
-        traps: {
-          fire: "orange",
-          poison: "lime",
-          spike: "silver",
-          shock: "yellow",
-          unknown: "orange",
-        },
-        damage: { player: "#00ff00", crit: "#ffff00", enemy: "#ff0000" },
-        log: {
-          player: "lime",
-          enemy: "red",
-          loot: "cyan",
-          block: "gray",
-          death: "orange",
-          floor: "violet",
-          danger: "darkred",
-          info: "white",
-        },
-      },
-      highContrast: {
-        ui: { bg: "#000000", fg: "#ffffff", accent: "#ffffff" },
-        map: {
-          player: "#00ffff",
-          wall: "#ffffff",
-          floor: "#9a9a9a",
-          fogWall: "#ffffff",
-          fogFloor: "#666",
-          mouse: "#ffffff",
-          trapVisible: "#ff00ff",
-          hiddenTrapFlash: "#ff00ff",
-          trapdoor: "#00ff00",
-          campfire: "#ff9900",
-          shop: "#ffff00",
-          unknown: "#ffffff",
-          falseWallA: "#00ff00",
-          falseWallB: "#00aa00",
-        },
-        enemies: {
-          rat: "#ffffff",
-          goblin: "#00ffff",
-          bat: "#ff00ff",
-          skeleton: "#ffff00",
-          orc: "#ff6600",
-        },
-        loot: {
-          health: "#ff0000",
-          strength: "#ffff00",
-          toughness: "#ffffff",
-          speed: "#00ffff",
-          invisibility: "#ff00ff",
-          explosive: "#ff6600",
-          food: "#ffffff",
-        },
-        traps: {
-          fire: "#ff6600",
-          poison: "#00ff00",
-          spike: "#ffffff",
-          shock: "#ffff00",
-          unknown: "#ff00ff",
-        },
-        damage: { player: "#00ff00", crit: "#ffff00", enemy: "#ff0000" },
-        log: {
-          player: "#00ff00",
-          enemy: "#ff4444",
-          loot: "#00ffff",
-          block: "#bbbbbb",
-          death: "#ff9900",
-          floor: "#ffffff",
-          danger: "#ff0000",
-          info: "#ffffff",
-        },
-      },
-      // Okabe-Ito inspired, better separation for common colorblindness.
-      colorblind: {
-        ui: { bg: "#000000", fg: "#f0f0f0", accent: "#56b4e9" },
-        map: {
-          player: "#56b4e9", // sky blue
-          wall: "#f0f0f0",
-          floor: "#8a8a8a",
-          fogWall: "#f0f0f0",
-          fogFloor: "#666",
-          mouse: "#f0f0f0",
-          trapVisible: "#d55e00", // vermillion
-          hiddenTrapFlash: "#d55e00",
-          trapdoor: "#009e73", // bluish green
-          campfire: "#e69f00", // orange
-          shop: "#f0e442", // yellow
-          unknown: "#f0f0f0",
-          falseWallA: "#009e73",
-          falseWallB: "#007f5f",
-        },
-        enemies: {
-          rat: "#f0f0f0",
-          goblin: "#e69f00",
-          bat: "#cc79a7",
-          skeleton: "#f0e442",
-          orc: "#d55e00",
-        },
-        loot: {
-          health: "#d55e00",
-          strength: "#e69f00",
-          toughness: "#f0f0f0",
-          speed: "#56b4e9",
-          invisibility: "#cc79a7",
-          explosive: "#0072b2",
-          food: "#f0f0f0",
-        },
-        traps: {
-          fire: "#d55e00",
-          poison: "#009e73",
-          spike: "#f0f0f0",
-          shock: "#f0e442",
-          unknown: "#d55e00",
-        },
-        damage: { player: "#009e73", crit: "#f0e442", enemy: "#d55e00" },
-        log: {
-          player: "#009e73",
-          enemy: "#d55e00",
-          loot: "#56b4e9",
-          block: "#bbbbbb",
-          death: "#e69f00",
-          floor: "#56b4e9",
-          danger: "#d55e00",
-          info: "#f0f0f0",
-        },
-      },
-    };
-
-    const name = getPaletteName();
-    return palettes[name] || palettes.default;
-  }
-
-  function applyPaletteToCss() {
-    const p = getPalette();
-    const root = document.documentElement;
-    root.style.setProperty("--bg", p.ui.bg);
-    root.style.setProperty("--fg", p.ui.fg);
-    root.style.setProperty("--accent", p.ui.accent);
-  }
-
-  function getEnemyColor(e) {
-    const p = getPalette();
-    const name = String(e?.name || "").toLowerCase();
-    if (name.includes("rat")) return p.enemies.rat;
-    if (name.includes("goblin")) return p.enemies.goblin;
-    if (name.includes("bat")) return p.enemies.bat;
-    if (name.includes("skeleton")) return p.enemies.skeleton;
-    if (name.includes("orc")) return p.enemies.orc;
-    return e?.color || p.map.unknown;
-  }
-
-  function getTrapColor(trap) {
-    const p = getPalette();
-    const t = String(trap?.type || "").toLowerCase();
-    return p.traps[t] || p.traps.unknown;
-  }
-
-  function getLootColor(loot) {
-    const p = getPalette();
-    const effect = String(loot?.effect || "").toLowerCase();
-    if (effect === "fullheal") return p.loot.health;
-    if (effect === "damageboost") return p.loot.strength;
-    if (effect === "toughnessboost") return p.loot.toughness;
-    if (effect === "speed") return p.loot.speed;
-    if (effect === "invisibility") return p.loot.invisibility;
-    if (effect === "explosive") return p.loot.explosive;
-    if (effect === "food") return p.loot.food;
-    return loot?.color || p.map.unknown;
-  }
-
   function vibrate(pattern) {
     if (!settings?.haptics) return;
     const vib = navigator?.vibrate;
@@ -3582,7 +3340,6 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // Initialize RNG so gameplay logic is deterministic and safe before starting.
   seedRng(createSeed());
-  applyPaletteToCss();
 
   // Expose settings globally for investigation descriptions
   window.gameSettings = settings;
