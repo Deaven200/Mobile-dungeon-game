@@ -29,7 +29,8 @@ function defaultSpriteSrcForGlyph(glyph) {
   const g = String(glyph || "");
 
   // Terrain
-  if (g === ".") return _spritePath("floor.png");
+  // Stone dungeon floor
+  if (g === ".") return _spritePath("stonefloor.png");
   if (g === "#") return _spritePath("wall.png");
   if (g === ",") return _spritePath("grass.png");
 

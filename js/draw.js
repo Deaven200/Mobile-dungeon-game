@@ -1098,6 +1098,9 @@ function draw() {
   const dimCss = "opacity:0.5;";
   const popCss = "font-weight:700;";
   const burningOutlineCss = "text-shadow: 0 0 3px orange, 0 0 6px orange;";
+  // Terrain fallback colors when sprites are missing.
+  const floorColor = "#777"; // stone gray
+  const grassColor = "#1fbf3a"; // readable green
   const reducedFlashing = !!settings?.reducedFlashing;
   const trapPeriod = reducedFlashing ? HIDDEN_TRAP_FLASH_PERIOD_MS * 2.5 : HIDDEN_TRAP_FLASH_PERIOD_MS;
   const trapPulse = reducedFlashing ? Math.max(120, Math.floor(HIDDEN_TRAP_FLASH_PULSE_MS * 0.6)) : HIDDEN_TRAP_FLASH_PULSE_MS;
@@ -1181,7 +1184,7 @@ function draw() {
         const hiddenAsWall = hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key);
         const ch = hiddenAsWall ? "#" : map[key] || "#";
         const t = ch === "#" ? "#" : ".";
-        paint(t === "#" ? "#" : ".", `color:${t === "#" ? "lime" : "#555"};${dimCss}`, { dim: true });
+        paint(t === "#" ? "#" : ".", `color:${t === "#" ? "lime" : floorColor};${dimCss}`, { dim: true });
         continue;
       }
 
@@ -1201,7 +1204,7 @@ function draw() {
           const t = ch === "#" ? "#" : ".";
           paint(
             t === "#" ? "#" : ".",
-            `color:${t === "#" ? "lime" : "#555"};${dimCss}`,
+            `color:${t === "#" ? "lime" : floorColor};${dimCss}`,
             { dim: true },
           );
         }
@@ -1245,16 +1248,16 @@ function draw() {
         if (trap) {
           if (trap.hidden) {
             // Hidden traps look like floor, but flash orange every few seconds.
-            paint(".", `color:${hiddenFlashOn ? "orange" : "#555"};`);
+            paint(".", `color:${hiddenFlashOn ? "orange" : floorColor};`);
           } else {
             paint("~", `color:${trap.color || "orange"};`);
           }
         } else if (ch === TILE.FLOOR) {
           // floor (optionally show auto-walk path preview)
           if (pathKeys.has(key)) paint(".", "color:#0ff;text-shadow: 0 0 4px rgba(0,255,255,0.35);");
-          else paint(".", "color:#555;");
+          else paint(".", `color:${floorColor};`);
         } // floor
-        else if (ch === TILE.GRASS) paint(",", "color:#1fbf3a;"); // grass
+        else if (ch === TILE.GRASS) paint(",", `color:${grassColor};`); // grass
         else if (ch === TILE.TRAP_VISIBLE) paint("~", "color:orange;"); // fallback
         else if (ch === TILE.WALL) paint("#", "color:lime;"); // wall
         else if (ch === TILE.ENTRANCE) paint("D", `color:var(--accent);${popCss}`); // dungeon entrance
