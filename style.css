@@ -306,7 +306,13 @@ body {
   padding: 8px 10px;
   border-radius: 10px;
   border: 1px solid rgba(0, 255, 255, 0.55);
-  background: rgba(0, 0, 0, 0.55);
+  /* Ground-tile backing so items aren't on pure black. */
+  background-color: rgba(0, 0, 0, 0.4);
+  background-image: url("sprites/stonefloor.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+  background-blend-mode: multiply;
   color: var(--accent);
   font-size: clamp(12px, 3.2vw, 14px);
   line-height: 1.05;
@@ -756,7 +762,13 @@ body.in-main-menu #liveLog {
   height: 40px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(0, 0, 0, 0.65);
+  /* Use the ground sprite as the icon background (instead of a flat black box). */
+  background-color: rgba(0, 0, 0, 0.15);
+  background-image: url("sprites/stonefloor.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+  background-blend-mode: multiply;
   display: flex;
   align-items: center;
   justify-content: center;

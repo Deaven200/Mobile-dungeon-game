@@ -570,6 +570,7 @@ function spawnEnemies(x, y, w, h) {
         name: t.name || "Rat",
         toughness: t.toughness || 0,
         speed: t.speed || 1,
+        flying: !!t.flying,
         statusEffects: {},
       });
       placed = true;
@@ -589,6 +590,7 @@ function spawnEnemies(x, y, w, h) {
         name: t.name || "Rat",
         toughness: t.toughness || 0,
         speed: t.speed || 1,
+        flying: !!t.flying,
         statusEffects: {},
       });
     }

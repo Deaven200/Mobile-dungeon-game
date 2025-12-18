@@ -89,6 +89,12 @@ function renderSpriteLayer(spriteCells, viewRadius) {
     return;
   }
 
+  // Render order: ground (1) -> entities/items (2) -> flying (3+).
+  // Also keep a stable order within a layer to avoid flicker.
+  const sorted = spriteCells
+    .slice()
+    .sort((a, b) => (Number(a?.z || 0) - Number(b?.z || 0)) || (Number(a?.cy || 0) - Number(b?.cy || 0)) || (Number(a?.cx || 0) - Number(b?.cx || 0)));
+
   const gRect = gameEl.getBoundingClientRect();
   const mRect = mapContainerEl.getBoundingClientRect();
   const fontPx = Number.parseFloat(window.getComputedStyle(gameEl).fontSize || "16");
@@ -106,7 +112,7 @@ function renderSpriteLayer(spriteCells, viewRadius) {
   const cols = viewRadius * 2 + 1;
   const rows = viewRadius * 2 + 1;
 
-  const html = spriteCells
+  const html = sorted
     .map((s) => {
       const cx = Number(s?.cx);
       const cy = Number(s?.cy);
@@ -115,12 +121,13 @@ function renderSpriteLayer(spriteCells, viewRadius) {
       const src = String(s?.src || "");
       if (!src) return "";
       const opacity = Math.max(0, Math.min(1, Number(s?.opacity ?? 1)));
+      const z = Number.isFinite(Number(s?.z)) ? Number(s.z) : 2;
       // Keep subpixel positioning (better alignment with the font grid), but snap final values.
       const left = Math.round(baseLeft + cx * cellW);
       const top = Math.round(baseTop + cy * cellH);
       const w = Math.max(1, Math.round(cellW));
       const h = Math.max(1, Math.round(cellH));
-      return `<div class="sprite-tile" style="left:${left}px;top:${top}px;width:${w}px;height:${h}px;opacity:${opacity};background-image:url(&quot;${cssUrl(
+      return `<div class="sprite-tile" style="left:${left}px;top:${top}px;width:${w}px;height:${h}px;opacity:${opacity};z-index:${z};background-image:url(&quot;${cssUrl(
         src,
       )}&quot;);"></div>`;
     })
@@ -1132,7 +1139,7 @@ function draw() {
   let out = "";
   let runStyle = null;
   let runText = "";
-  const spriteCells = []; // { cx, cy, src, opacity }
+  const spriteCells = []; // { cx, cy, src, opacity, z }
   const flush = () => {
     if (!runText) return;
     if (runStyle) out += `<span style="${runStyle}">${escapeHtml(runText)}</span>`;
@@ -1151,12 +1158,25 @@ function draw() {
   let curCx = 0;
   let curCy = 0;
 
-  const addSpriteCell = (glyph, opacity = 1) => {
+  const inferRenderLevel = (glyph, opts = null) => {
+    const g = String(glyph || " ");
+    // Terrain is always ground level.
+    if (g === "." || g === "#" || g === ",") return 1;
+    // Flying things render above normal entities.
+    if (opts?.entity && opts.entity.flying) return 3;
+    // Boss bat (uppercase) should also be treated as flying even if the data didn't mark it.
+    if (g === "b" || g === "B") return 3;
+    // Default: "on the ground" / normal entity layer.
+    return 2;
+  };
+
+  const addSpriteCell = (glyph, opacity = 1, z = 2) => {
     const g = String(glyph || " ");
     const src = window.SpriteAtlas?.getReadySrcForGlyph?.(g) || "";
     if (!src) return false;
     const op = Math.max(0, Math.min(1, Number(opacity ?? 1)));
-    spriteCells.push({ cx: curCx, cy: curCy, src, opacity: op });
+    const zz = Number.isFinite(Number(z)) ? Number(z) : 2;
+    spriteCells.push({ cx: curCx, cy: curCy, src, opacity: op, z: zz });
     return true;
   };
 
@@ -1196,7 +1216,7 @@ function draw() {
 
   const addTerrainUnderlay = (k, dim = false) => {
     const g = underlayGlyphForKey(k);
-    return addSpriteCell(g, dim ? 0.5 : 1);
+    return addSpriteCell(g, dim ? 0.5 : 1, 1);
   };
 
   const spriteReadyForGlyph = (glyph) => {
@@ -1218,7 +1238,8 @@ function draw() {
 
   const paint = (ch, style, opts = null) => {
     const glyph = String(ch || " ");
-    const ok = addSpriteCell(glyph, opts?.dim ? 0.5 : 1);
+    const z = inferRenderLevel(glyph, opts);
+    const ok = addSpriteCell(glyph, opts?.dim ? 0.5 : 1, z);
     if (ok) {
       // Hide the ASCII glyph when the sprite is present.
       pushCell(" ", null);
@@ -1279,13 +1300,13 @@ function draw() {
 
       if (tx === player.x && ty === player.y) {
         const extra = `${popCss}${getBurning(player)?.turns ? burningOutlineCss : ""}`;
-        paintOnTerrain("@", `color:cyan;${extra}`, key);
+        paintOnTerrain("@", `color:cyan;${extra}`, key, { entity: player });
       } else if (enemyByPos.has(key)) {
         const e = enemyByPos.get(key);
         const hitFlash = lastTarget && lastTarget.x === e.x && lastTarget.y === e.y && Date.now() - (lastTarget.time || 0) < 220;
         const flashCss = hitFlash ? "text-shadow: 0 0 6px rgba(255,255,255,0.9), 0 0 10px rgba(255,255,255,0.35);" : "";
         const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}${flashCss}`;
-        paintOnTerrain(e.symbol || "E", `color:${e.color || "red"};${extra}`, key);
+        paintOnTerrain(e.symbol || "E", `color:${e.color || "red"};${extra}`, key, { entity: e });
       } else if (mouse && tx === mouse.x && ty === mouse.y) {
         paintOnTerrain("m", `color:#eee;${popCss}`, key);
       } else if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
@@ -1344,7 +1365,7 @@ function draw() {
             const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
             const isBoss = e.symbol && e.symbol === e.symbol.toUpperCase() && e.symbol !== e.symbol.toLowerCase();
             const bossGlow = isBoss ? "text-shadow: 0 0 4px #ff0000, 0 0 8px #ff0000;" : "";
-            paintOnTerrain(e.symbol || "E", `color:${e.color || "red"};${extra}${bossGlow}`, key);
+            paintOnTerrain(e.symbol || "E", `color:${e.color || "red"};${extra}${bossGlow}`, key, { entity: e });
           }
         } else if (ch === TILE.CAMPFIRE) {
           paintOnTerrain("C", `color:orange;${popCss}`, key); // campfire
