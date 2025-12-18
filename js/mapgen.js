@@ -1051,6 +1051,9 @@ function spawnMouse() {
 }
 
 function triggerTrapAtEntity(x, y, target, targetKind = "player") {
+  // Flying enemies (e.g. bats) don't trigger traps.
+  if (targetKind === "enemy" && target?.flying) return false;
+
   const key = `${x},${y}`;
   const trap = trapAtKey(key);
   if (!trap) return false;
