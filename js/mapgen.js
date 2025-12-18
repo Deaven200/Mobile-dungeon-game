@@ -570,6 +570,7 @@ function spawnEnemies(x, y, w, h) {
         name: t.name || "Rat",
         toughness: t.toughness || 0,
         speed: t.speed || 1,
+        flying: !!t.flying,
         statusEffects: {},
       });
       placed = true;
@@ -589,6 +590,7 @@ function spawnEnemies(x, y, w, h) {
         name: t.name || "Rat",
         toughness: t.toughness || 0,
         speed: t.speed || 1,
+        flying: !!t.flying,
         statusEffects: {},
       });
     }
@@ -1049,6 +1051,9 @@ function spawnMouse() {
 }
 
 function triggerTrapAtEntity(x, y, target, targetKind = "player") {
+  // Flying enemies (e.g. bats) don't trigger traps.
+  if (targetKind === "enemy" && target?.flying) return false;
+
   const key = `${x},${y}`;
   const trap = trapAtKey(key);
   if (!trap) return false;

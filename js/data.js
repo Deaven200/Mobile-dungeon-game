@@ -232,7 +232,7 @@ const TRINKETS = [
 // Brighter colors for readability
 const RAT = { hp: 3, dmg: 1, color: "#bdbdbd", sight: 4, symbol: "r", name: "Rat" };
 const GOBLIN = { hp: 6, dmg: 3, color: "#00ff3a", sight: 5, symbol: "g", name: "Goblin" };
-const BAT = { hp: 2, dmg: 1, color: "#a055a0", sight: 5, symbol: "b", name: "Bat", speed: 2 };
+const BAT = { hp: 2, dmg: 1, color: "#a055a0", sight: 5, symbol: "b", name: "Bat", speed: 2, flying: true };
 const SKELETON = { hp: 8, dmg: 2, color: "#ffffff", sight: 4, symbol: "s", name: "Skeleton" };
 const ORC = { hp: 12, dmg: 4, color: "#8b4513", sight: 3, symbol: "o", name: "Orc", toughness: 1 };
 
