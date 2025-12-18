@@ -820,7 +820,15 @@ function shakeScreen(intensity = 1, durationMs = 120) {
   try {
     if (!settings?.screenShake) return;
     if (settings?.reducedMotion) return;
-    if (!gameEl) return;
+    // Shake the whole map stack (ASCII + sprites + damage numbers) if possible.
+    // Fallback to shaking the ASCII element only.
+    const targetEl =
+      typeof mapContainerEl !== "undefined" && mapContainerEl
+        ? mapContainerEl
+        : gameEl
+          ? gameEl
+          : null;
+    if (!targetEl) return;
     const base = Math.max(0, Number(intensity || 1)) * Math.max(0.2, Number(settings.screenShakeIntensity || 1));
     const dur = Math.max(40, Number(durationMs || 120));
     const t0 = performance?.now?.() || Date.now();
@@ -830,7 +838,7 @@ function shakeScreen(intensity = 1, durationMs = 120) {
       const now = performance?.now?.() || Date.now();
       const t = (now - t0) / dur;
       if (t >= 1) {
-        gameEl.style.transform = "";
+        targetEl.style.transform = "";
         _shakeRaf = 0;
         return;
       }
@@ -838,7 +846,7 @@ function shakeScreen(intensity = 1, durationMs = 120) {
       const mag = base * (1 - t) * 3.0;
       const dx = (rand01() * 2 - 1) * mag;
       const dy = (rand01() * 2 - 1) * mag;
-      gameEl.style.transform = `translate(${dx}px, ${dy}px)`;
+      targetEl.style.transform = `translate(${dx}px, ${dy}px)`;
       _shakeRaf = requestAnimationFrame(tick);
     };
     _shakeRaf = requestAnimationFrame(tick);
@@ -851,15 +859,22 @@ function flashGame(filterCss = "brightness(1.35)") {
   try {
     if (!settings?.hitFlash) return;
     if (settings?.reducedFlashing) return;
-    if (!gameEl) return;
-    gameEl.style.transition = "filter 0.08s";
-    gameEl.style.filter = filterCss;
+    // Apply to the whole map stack if possible (so sprites flash too).
+    const targetEl =
+      typeof mapContainerEl !== "undefined" && mapContainerEl
+        ? mapContainerEl
+        : gameEl
+          ? gameEl
+          : null;
+    if (!targetEl) return;
+    targetEl.style.transition = "filter 0.08s";
+    targetEl.style.filter = filterCss;
     setTimeout(() => {
-      if (!gameEl) return;
-      gameEl.style.filter = "";
+      if (!targetEl) return;
+      targetEl.style.filter = "";
       setTimeout(() => {
-        if (!gameEl) return;
-        gameEl.style.transition = "";
+        if (!targetEl) return;
+        targetEl.style.transition = "";
       }, 90);
     }, 90);
   } catch {
