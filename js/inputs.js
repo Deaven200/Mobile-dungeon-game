@@ -458,6 +458,9 @@ function bindInputs() {
       }
 
       if (btn.dataset.sortInv != null) {
+        // Sorting should close the item drawer to avoid confusing state.
+        menuInvActionOpen = false;
+        menuInvAssignOpen = false;
         setInventorySort(btn.dataset.sortInv);
         return;
       }
