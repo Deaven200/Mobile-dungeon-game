@@ -3,6 +3,7 @@
 let measureEl = null;
 let cachedCellMetrics = null;
 let lastMapHtml = "";
+let spriteLayerEl = null;
 
 function getMonoCellMetricsPx(testFontPx = 100) {
   // Cache metrics on first call
@@ -62,6 +63,67 @@ function updateMapFontSize() {
   const clamped = Math.max(minPx, Math.min(maxPx, fontPx));
 
   gameEl.style.fontSize = `${clamped}px`;
+}
+
+function getSpriteLayerEl() {
+  if (spriteLayerEl) return spriteLayerEl;
+  spriteLayerEl = document.getElementById("spriteLayer");
+  return spriteLayerEl;
+}
+
+function cssUrl(src) {
+  // Safe-ish for inline CSS url(...). Keep it simple: avoid quotes/newlines.
+  return String(src || "").replaceAll('"', "%22").replaceAll("\n", "").replaceAll("\r", "");
+}
+
+function renderSpriteLayer(spriteCells, viewRadius) {
+  const layer = getSpriteLayerEl();
+  if (!layer) return;
+  if (!gameEl || !mapContainerEl) return;
+  if (inMainMenu || menuOpen) {
+    if (layer.innerHTML) layer.innerHTML = "";
+    return;
+  }
+  if (!Array.isArray(spriteCells) || spriteCells.length === 0) {
+    if (layer.innerHTML) layer.innerHTML = "";
+    return;
+  }
+
+  const gRect = gameEl.getBoundingClientRect();
+  const mRect = mapContainerEl.getBoundingClientRect();
+  const fontPx = Number.parseFloat(window.getComputedStyle(gameEl).fontSize || "16");
+  const { unitW, unitH } = getMonoCellMetricsPx(120);
+  const cellW = unitW * fontPx;
+  const cellH = unitH * fontPx;
+  if (!cellW || !cellH) return;
+
+  // Cells are positioned relative to the top-left of the ASCII block.
+  const baseLeft = gRect.left - mRect.left;
+  const baseTop = gRect.top - mRect.top;
+
+  // Only render sprites inside the visible grid.
+  const cols = viewRadius * 2 + 1;
+  const rows = viewRadius * 2 + 1;
+
+  const html = spriteCells
+    .map((s) => {
+      const cx = Number(s?.cx);
+      const cy = Number(s?.cy);
+      if (!Number.isFinite(cx) || !Number.isFinite(cy)) return "";
+      if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return "";
+      const src = String(s?.src || "");
+      if (!src) return "";
+      const opacity = Math.max(0, Math.min(1, Number(s?.opacity ?? 1)));
+      const left = baseLeft + cx * cellW;
+      const top = baseTop + cy * cellH;
+      return `<div class="sprite-tile" style="left:${left}px;top:${top}px;width:${cellW}px;height:${cellH}px;opacity:${opacity};background-image:url(&quot;${cssUrl(
+        src,
+      )}&quot;);"></div>`;
+    })
+    .filter(Boolean)
+    .join("");
+
+  layer.innerHTML = html;
 }
 
 function renderMenuHtml() {
@@ -1005,8 +1067,18 @@ function draw() {
     activeTab = activeTab || "inventory";
     gameEl.innerHTML = renderMenuHtml();
     lastMapHtml = "";
+    // Clear sprite overlay while in menus.
+    try {
+      const layer = getSpriteLayerEl();
+      if (layer && layer.innerHTML) layer.innerHTML = "";
+    } catch {
+      // ignore
+    }
     return;
   }
+
+  // Keep font sizing stable before we place sprite tiles.
+  updateMapFontSize();
 
   const enemyByPos = new Map();
   for (const e of enemies) enemyByPos.set(`${e.x},${e.y}`, e);
@@ -1053,6 +1125,7 @@ function draw() {
   let out = "";
   let runStyle = null;
   let runText = "";
+  const spriteCells = []; // { cx, cy, src, opacity }
   const flush = () => {
     if (!runText) return;
     if (runStyle) out += `<span style="${runStyle}">${escapeHtml(runText)}</span>`;
@@ -1067,8 +1140,28 @@ function draw() {
     runText += ch;
   };
 
+  // Current cell coordinate in the visible grid (0..2R).
+  let curCx = 0;
+  let curCy = 0;
+
+  const paint = (ch, style, opts = null) => {
+    const glyph = String(ch || " ");
+    const src = window.SpriteAtlas?.getReadySrcForGlyph?.(glyph) || "";
+    if (src) {
+      const dim = !!(opts && opts.dim);
+      const opacity = dim ? 0.5 : 1;
+      spriteCells.push({ cx: curCx, cy: curCy, src, opacity });
+      // Hide the ASCII glyph when the sprite is present.
+      pushCell(" ", null);
+      return;
+    }
+    pushCell(glyph, style);
+  };
+
   for (let y = -viewRadius; y <= viewRadius; y++) {
     for (let x = -viewRadius; x <= viewRadius; x++) {
+      curCx = x + viewRadius;
+      curCy = y + viewRadius;
       const tx = player.x + x;
       const ty = player.y + y;
       const key = `${tx},${ty}`;
@@ -1080,7 +1173,7 @@ function draw() {
       const currentlyVisible = vis?.has?.(key);
       if (dist > BASE_VIEW_RADIUS || !currentlyVisible) {
         if (!explored.has(key)) {
-          pushCell(" ", null);
+          paint(" ", null);
           continue;
         }
 
@@ -1088,7 +1181,7 @@ function draw() {
         const hiddenAsWall = hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key);
         const ch = hiddenAsWall ? "#" : map[key] || "#";
         const t = ch === "#" ? "#" : ".";
-        pushCell(t === "#" ? "#" : ".", `color:${t === "#" ? "lime" : "#555"};${dimCss}`);
+        paint(t === "#" ? "#" : ".", `color:${t === "#" ? "lime" : "#555"};${dimCss}`, { dim: true });
         continue;
       }
 
@@ -1101,14 +1194,15 @@ function draw() {
           const isFalseWall = hiddenArea.falseWalls?.has(key);
           const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
           const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
-          pushCell("#", `color:${color};${dimCss}`);
+          paint("#", `color:${color};${dimCss}`, { dim: true });
         } else {
           const ch = map[key] || "#";
           // Only terrain: walls and floors. Everything else renders as floor.
           const t = ch === "#" ? "#" : ".";
-          pushCell(
+          paint(
             t === "#" ? "#" : ".",
             `color:${t === "#" ? "lime" : "#555"};${dimCss}`,
+            { dim: true },
           );
         }
         continue;
@@ -1116,21 +1210,21 @@ function draw() {
 
       if (tx === player.x && ty === player.y) {
         const extra = `${popCss}${getBurning(player)?.turns ? burningOutlineCss : ""}`;
-        pushCell("@", `color:cyan;${extra}`);
+        paint("@", `color:cyan;${extra}`);
       } else if (enemyByPos.has(key)) {
         const e = enemyByPos.get(key);
         const hitFlash = lastTarget && lastTarget.x === e.x && lastTarget.y === e.y && Date.now() - (lastTarget.time || 0) < 220;
         const flashCss = hitFlash ? "text-shadow: 0 0 6px rgba(255,255,255,0.9), 0 0 10px rgba(255,255,255,0.35);" : "";
         const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}${flashCss}`;
-        pushCell(e.symbol || "E", `color:${e.color || "red"};${extra}`);
+        paint(e.symbol || "E", `color:${e.color || "red"};${extra}`);
       } else if (mouse && tx === mouse.x && ty === mouse.y) {
-        pushCell("m", `color:#eee;${popCss}`);
+        paint("m", `color:#eee;${popCss}`);
       } else if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
         // Hidden hallway/room are drawn as walls until revealed.
         const isFalseWall = hiddenArea.falseWalls?.has(key);
         const flash = isFalseWall && Date.now() < (hiddenArea.mouseFlashUntil || 0);
         const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
-        pushCell("#", `color:${color};`);
+        paint("#", `color:${color};`);
       } else if (lootAtKey(key)) {
         const p = lootAtKey(key);
         const rid = String(p?.rarity || "");
@@ -1138,51 +1232,51 @@ function draw() {
         const outline = rar?.outline
           ? `text-shadow: -1px 0 ${rar.outline}, 1px 0 ${rar.outline}, 0 -1px ${rar.outline}, 0 1px ${rar.outline}, 0 0 6px ${rar.outline};`
           : "";
-        pushCell(p.symbol, `color:${p.color || "cyan"};${popCss}${outline}`);
+        paint(p.symbol, `color:${p.color || "cyan"};${popCss}${outline}`);
       } else if (propAtKey?.(key)) {
         const pr = propAtKey(key);
         const kind = String(pr?.kind || "");
         const ch = kind === "crate" ? TILE.CRATE : TILE.BARREL;
         const c = kind === "crate" ? "#c49a6c" : "#a86f3a";
-        pushCell(ch, `color:${c};${popCss}text-shadow: 0 0 4px rgba(0,0,0,0.6);`);
+        paint(ch, `color:${c};${popCss}text-shadow: 0 0 4px rgba(0,0,0,0.6);`);
       } else {
         const ch = tileAtKey(key);
         const trap = trapAtKey(key);
         if (trap) {
           if (trap.hidden) {
             // Hidden traps look like floor, but flash orange every few seconds.
-            pushCell(".", `color:${hiddenFlashOn ? "orange" : "#555"};`);
+            paint(".", `color:${hiddenFlashOn ? "orange" : "#555"};`);
           } else {
-            pushCell("~", `color:${trap.color || "orange"};`);
+            paint("~", `color:${trap.color || "orange"};`);
           }
         } else if (ch === TILE.FLOOR) {
           // floor (optionally show auto-walk path preview)
-          if (pathKeys.has(key)) pushCell(".", "color:#0ff;text-shadow: 0 0 4px rgba(0,255,255,0.35);");
-          else pushCell(".", "color:#555;");
+          if (pathKeys.has(key)) paint(".", "color:#0ff;text-shadow: 0 0 4px rgba(0,255,255,0.35);");
+          else paint(".", "color:#555;");
         } // floor
-        else if (ch === TILE.GRASS) pushCell(",", "color:#1fbf3a;"); // grass
-        else if (ch === TILE.TRAP_VISIBLE) pushCell("~", "color:orange;"); // fallback
-        else if (ch === TILE.WALL) pushCell("#", "color:lime;"); // wall
-        else if (ch === TILE.ENTRANCE) pushCell("D", `color:var(--accent);${popCss}`); // dungeon entrance
-        else if (ch === TILE.UPSTAIRS) pushCell("U", `color:#8ff;${popCss}`); // exit upstairs
-        else if (ch === TILE.SHRINE) pushCell("&", `color:#ff66ff;${popCss}text-shadow: 0 0 6px rgba(255,102,255,0.35);`); // shrine
+        else if (ch === TILE.GRASS) paint(",", "color:#1fbf3a;"); // grass
+        else if (ch === TILE.TRAP_VISIBLE) paint("~", "color:orange;"); // fallback
+        else if (ch === TILE.WALL) paint("#", "color:lime;"); // wall
+        else if (ch === TILE.ENTRANCE) paint("D", `color:var(--accent);${popCss}`); // dungeon entrance
+        else if (ch === TILE.UPSTAIRS) paint("U", `color:#8ff;${popCss}`); // exit upstairs
+        else if (ch === TILE.SHRINE) paint("&", `color:#ff66ff;${popCss}text-shadow: 0 0 6px rgba(255,102,255,0.35);`); // shrine
         else if (ch === TILE.TRAPDOOR) {
           // Only show trapdoor if no enemy is on it
           if (!enemyByPos.has(key)) {
-            pushCell("T", `color:#00ff3a;${popCss}`); // trapdoor
+            paint("T", `color:#00ff3a;${popCss}`); // trapdoor
           } else {
             // Enemy is on trapdoor, show enemy instead
             const e = enemyByPos.get(key);
             const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
             const isBoss = e.symbol && e.symbol === e.symbol.toUpperCase() && e.symbol !== e.symbol.toLowerCase();
             const bossGlow = isBoss ? "text-shadow: 0 0 4px #ff0000, 0 0 8px #ff0000;" : "";
-            pushCell(e.symbol || "E", `color:${e.color || "red"};${extra}${bossGlow}`);
+            paint(e.symbol || "E", `color:${e.color || "red"};${extra}${bossGlow}`);
           }
-        } else if (ch === TILE.CAMPFIRE) pushCell("C", `color:orange;${popCss}`); // campfire
-        else if (ch === TILE.SHOP) pushCell("$", `color:#ffd700;${popCss}`); // shop
-        else if (ch === TILE.BLACKSMITH) pushCell("K", `color:#c49a6c;${popCss}text-shadow: 0 0 6px rgba(196,154,108,0.35);`); // blacksmith
-        else if (ch === TILE.BOUNTY) pushCell("!", `color:var(--accent);${popCss}text-shadow: 0 0 6px rgba(0,255,255,0.35);`); // bounty board
-        else pushCell(ch, "color:white;");
+        } else if (ch === TILE.CAMPFIRE) paint("C", `color:orange;${popCss}`); // campfire
+        else if (ch === TILE.SHOP) paint("$", `color:#ffd700;${popCss}`); // shop
+        else if (ch === TILE.BLACKSMITH) paint("K", `color:#c49a6c;${popCss}text-shadow: 0 0 6px rgba(196,154,108,0.35);`); // blacksmith
+        else if (ch === TILE.BOUNTY) paint("!", `color:var(--accent);${popCss}text-shadow: 0 0 6px rgba(0,255,255,0.35);`); // bounty board
+        else paint(ch, "color:white;");
       }
     }
     flush();
@@ -1195,5 +1289,8 @@ function draw() {
     gameEl.innerHTML = out;
     lastMapHtml = out;
   }
+
+  // Recompute font size (in case viewport/zoom changed), then position sprites.
   updateMapFontSize();
+  renderSpriteLayer(spriteCells, viewRadius);
 }
