@@ -128,48 +128,203 @@ function renderMenuHtml() {
       }
       return nm;
     };
+    const effectId = (it) => String(it?.effect || "").toLowerCase();
+    const itemKind = (it) => {
+      const eff = effectId(it);
+      if (eff === "weapon") return "weapon";
+      if (eff === "trinket") return "trinket";
+      if (eff === "material") return "material";
+      if (eff === "valuable") return "valuable";
+      if (eff === "food") return "consumable";
+      // Potions/other consumables (fullHeal/speed/etc.) are also consumables.
+      return "consumable";
+    };
     const valueGold = (it) =>
       typeof getItemSellValue === "function" ? Math.max(0, Math.floor(Number(getItemSellValue(it) || 0))) : 0;
     const metaLine = (it) => {
       if (!it) return "";
-      const eff = String(it.effect || "").toLowerCase();
-      const v = valueGold(it);
+      const eff = effectId(it);
+      if (eff === "weapon") return `DMG 0-${Number(it.maxDamage || 0)}`;
       if (eff === "food") {
         const h = Math.max(0, Number(it.hunger || 0));
-        return `Food +${h} hunger / Value ${v} Gold`;
+        const heal = Math.max(0, Number(it.heal || 0));
+        return heal ? `Hunger +${h} • Heal +${heal}` : `Hunger +${h}`;
       }
-      if (eff === "weapon") return `Weapon 0-${Number(it.maxDamage || 0)} / Value ${v} Gold`;
-      if (eff === "material") return `Material x${Math.max(1, Math.floor(Number(it.qty || 1)))} / Value ${v} Gold`;
-      if (eff === "valuable") return `Valuable / Value ${v} Gold`;
-      return `Item / Value ${v} Gold`;
+      if (eff === "valuable") return `Worth ${Number(it.value || 0)}g`;
+      if (eff === "material") return "Material";
+      if (eff === "trinket") return "Trinket";
+      return "Consumable";
+    };
+    const rarityBadge = (it) => {
+      const rid = String(it?.rarity || "");
+      if (!rid) return "";
+      if (rid === "trash") return "·";
+      if (rid === "common") return "◇";
+      if (rid === "uncommon") return "◆";
+      if (rid === "rare") return "✦";
+      if (rid === "epic") return "✷";
+      if (rid === "legendary") return "★";
+      return "◇";
     };
     const qtyLabel = (it) => {
       const q = Math.max(1, Math.floor(Number(it?.qty || 1)));
       return q > 1 ? ` x${q}` : "";
     };
+    const hotbarSlotsFor = (it) => {
+      try {
+        const iid = String(it?.iid || "");
+        if (!iid) return [];
+        const out = [];
+        for (let s = 0; s < 4; s++) {
+          if (String(player?.hotbar?.[s] || "") === iid) out.push(s);
+        }
+        return out;
+      } catch {
+        return [];
+      }
+    };
+    const isNewItem = (it) => {
+      const t = Number(it?.pickedAt || 0);
+      if (!Number.isFinite(t) || !t) return false;
+      return Date.now() - t < 2 * 60 * 1000; // 2 minutes
+    };
+    const describeItemLines = (it) => {
+      if (!it) return [];
+      const eff = effectId(it);
+      const rid = String(it.rarity || "");
+      const lines = [];
+      if (rid) lines.push(`Rarity: ${rid}`);
+      if (eff === "weapon") {
+        if (Number.isFinite(Number(it.level))) lines.push(`Level: ${Number(it.level || 1)}`);
+        lines.push(`Damage: 0-${Number(it.maxDamage || 0)}`);
+      } else if (eff === "food") {
+        lines.push(`Hunger +${Number(it.hunger || 0)}`);
+        if (Number(it.heal || 0)) lines.push(`Heal +${Number(it.heal || 0)}`);
+        lines.push(it.cooked ? "Cooked" : "Raw");
+      } else if (eff === "valuable") {
+        lines.push(`Worth: ${Number(it.value || 0)} gold`);
+        lines.push("Can't be used. Sell at a shop.");
+      } else if (eff === "material") {
+        lines.push("Used for upgrades/crafting.");
+      } else {
+        // Potions / misc consumables
+        if (eff === "fullheal") lines.push("Heals to full and increases max HP.");
+        else if (eff === "damageboost") lines.push("Permanently increases damage.");
+        else if (eff === "toughnessboost") lines.push("Permanently increases toughness.");
+        else if (eff === "speed") lines.push(`Speed boost (${Number(it.turns || 10)} turns).`);
+        else if (eff === "invisibility") lines.push(`Invisibility (${Number(it.turns || 5)} turns).`);
+        else if (eff === "explosive") lines.push("Explodes, damaging adjacent enemies.");
+        else if (eff) lines.push(`Type: ${eff}`);
+      }
+      const slots = hotbarSlotsFor(it);
+      if (slots.length) lines.push(`Hotbar: ${slots.map((s) => `#${s + 1}`).join(", ")}`);
+      if (isNewItem(it)) lines.push("New");
+      const sv = valueGold(it);
+      if (sv) lines.push(`Sell value: ${sv} gold`);
+      return lines;
+    };
+
+    const matchesFilter = (it) => {
+      const f = String(menuInvFilter || "all").toLowerCase();
+      if (f === "all") return true;
+      const k = itemKind(it);
+      if (f === "weapons") return k === "weapon";
+      if (f === "trinkets") return k === "trinket";
+      if (f === "materials") return k === "material";
+      if (f === "valuables") return k === "valuable";
+      if (f === "consumables") return k === "consumable";
+      return true;
+    };
+    const rarityRank = (it) => {
+      const rid = String(it?.rarity || "");
+      const order = ["trash", "common", "uncommon", "rare", "epic", "legendary"];
+      const i = order.indexOf(rid);
+      return i < 0 ? 1 : i;
+    };
 
     const hasFind = typeof findInventoryIndexById === "function";
-    const resolveSelectedIndex = () => {
+    // Work with view rows so filter/sort don't break actions.
+    let rows = inv.map((it, idx) => ({ it, idx }));
+    rows = rows.filter((r) => r.it && matchesFilter(r.it));
+
+    const sortMode = String(player?.inventorySort || "type").toLowerCase();
+    rows.sort((a, b) => {
+      const A = a.it;
+      const B = b.it;
+      if (sortMode === "name") return String(displayName(A)).localeCompare(String(displayName(B)));
+      if (sortMode === "value") return valueGold(B) - valueGold(A) || String(displayName(A)).localeCompare(String(displayName(B)));
+      if (sortMode === "rarity") return rarityRank(B) - rarityRank(A) || valueGold(B) - valueGold(A);
+      if (sortMode === "recent") return Number(B?.pickedAt || 0) - Number(A?.pickedAt || 0);
+      // default: type
+      return itemKind(A).localeCompare(itemKind(B)) || String(displayName(A)).localeCompare(String(displayName(B)));
+    });
+
+    const resolveSelectedRowPos = () => {
       const wanted = String(menuSelectedInvIid || "");
       if (wanted && hasFind) {
-        const idx = findInventoryIndexById(wanted);
-        if (idx >= 0) return idx;
+        const invIdx = findInventoryIndexById(wanted);
+        if (invIdx >= 0) {
+          const pos = rows.findIndex((r) => r.idx === invIdx);
+          if (pos >= 0) return pos;
+        }
       }
-      if (inv?.[0]?.iid) menuSelectedInvIid = String(inv[0].iid);
-      return inv.length ? 0 : -1;
+      const first = rows[0]?.it?.iid;
+      if (first) menuSelectedInvIid = String(first);
+      return rows.length ? 0 : -1;
     };
-    const selIdx = resolveSelectedIndex();
-    const selItem = selIdx >= 0 ? inv[selIdx] : null;
+    const selPos = resolveSelectedRowPos();
+    const selRow = selPos >= 0 ? rows[selPos] : null;
+    const selItem = selRow?.it || null;
+    const selInvIdx = Number.isFinite(selRow?.idx) ? selRow.idx : -1;
 
     const header = `<div class="inv-header">
       <div class="menu-status">Inventory: ${used}/${cap || "∞"}</div>
     </div>`;
 
+    const filterRow = `<div class="inv-toolbar">
+      <div class="inv-chip-row">
+        ${[
+          { id: "all", label: "All" },
+          { id: "weapons", label: "Weapons" },
+          { id: "consumables", label: "Consumables" },
+          { id: "trinkets", label: "Trinkets" },
+          { id: "materials", label: "Materials" },
+          { id: "valuables", label: "Valuables" },
+        ]
+          .map(
+            (x) =>
+              `<button type="button" class="inv-pill ${String(menuInvFilter || "all") === x.id ? "is-active" : ""}" data-inv-filter="${escapeHtml(
+                x.id,
+              )}">${escapeHtml(x.label)}</button>`,
+          )
+          .join("")}
+      </div>
+      <div class="inv-chip-row" style="margin-top:8px;">
+        <div style="opacity:0.8; align-self:center; margin-right:6px;">Sort</div>
+        ${[
+          { id: "type", label: "Type" },
+          { id: "name", label: "Name" },
+          { id: "value", label: "Value" },
+          { id: "rarity", label: "Rarity" },
+          { id: "recent", label: "New" },
+        ]
+          .map(
+            (x) =>
+              `<button type="button" class="inv-chip ${String(player?.inventorySort || "type") === x.id ? "is-active" : ""}" data-sort-inv="${escapeHtml(
+                x.id,
+              )}">${escapeHtml(x.label)}</button>`,
+          )
+          .join("")}
+      </div>
+    </div>`;
+
     if (!used) {
-      content = `${header}<div class="menu-empty">Inventory empty (${used}/${cap || "∞"})</div>`;
+      content = `${header}${filterRow}<div class="menu-empty">Inventory empty (${used}/${cap || "∞"})</div>`;
+    } else if (!rows.length) {
+      content = `${header}${filterRow}<div class="menu-empty">No items match this filter.</div>`;
     } else {
-      const gridHtml = `<div class="inv-grid">${inv
-        .map((it, idx) => {
+      const gridHtml = `<div class="inv-grid">${rows
+        .map(({ it, idx }) => {
           try {
             ensureItemId?.(it);
           } catch {
@@ -177,57 +332,103 @@ function renderMenuHtml() {
           }
           const iid = String(it?.iid || "");
           const active = selItem?.iid && iid && selItem.iid === iid;
-          return `<button type="button" class="inv-slot ${active ? "is-active" : ""}" data-select-inv="${escapeHtml(iid)}" title="${escapeHtml(
-            itemTitle(it),
-          )}">
-            <div class="inv-slot-name" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}">${escapeHtml(displayName(it))}${escapeHtml(
-            qtyLabel(it),
-          )}</div>
-            <div class="inv-slot-meta">${escapeHtml(metaLine(it))}</div>
+          const sym = String(it?.symbol || "?");
+          const q = Math.max(1, Math.floor(Number(it?.qty || 1)));
+          const slots = hotbarSlotsFor(it);
+          const badges = [];
+          const rb = rarityBadge(it);
+          if (rb) badges.push(`<span class="inv-badge inv-badge-rarity" aria-label="Rarity">${escapeHtml(rb)}</span>`);
+          if (q > 1) badges.push(`<span class="inv-badge inv-badge-qty">x${q}</span>`);
+          if (slots.length)
+            badges.push(
+              `<span class="inv-badge inv-badge-hotbar">${slots
+                .map((s) => `#${s + 1}`)
+                .join("")}</span>`,
+            );
+          if (isNewItem(it)) badges.push(`<span class="inv-badge inv-badge-new">New</span>`);
+
+          return `<button type="button" class="inv-slot ${active ? "is-active" : ""}" data-select-inv="${escapeHtml(iid)}">
+            <div class="inv-slot-icon" aria-hidden="true" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}">${escapeHtml(sym)}</div>
+            <div class="inv-slot-main">
+              <div class="inv-slot-name" style="color:${it?.color || "cyan"};${rarityOutlineCss(it)}">${escapeHtml(displayName(it))}</div>
+              <div class="inv-slot-meta">${escapeHtml(metaLine(it))}</div>
+            </div>
+            <div class="inv-slot-badges">${badges.join("")}</div>
           </button>`;
         })
         .join("")}</div>`;
 
       const nearFire = typeof isPlayerNearCampfire === "function" ? isPlayerNearCampfire() : false;
-      const canCook = !!(nearFire && selItem && String(selItem.effect || "").toLowerCase() === "food" && !selItem.cooked);
+      const canCook = !!(nearFire && selItem && effectId(selItem) === "food" && !selItem.cooked);
 
-      const overlayOpen = !!(menuInvActionOpen && selItem);
-      const overlaySideClass = selIdx % 2 === 0 ? "" : " is-left"; // click left column -> overlay covers right column
+      const drawerOpen = !!(menuInvActionOpen && selItem);
+
+      const primaryAction = (() => {
+        if (!selItem || selInvIdx < 0) return null;
+        const eff = effectId(selItem);
+        if (eff === "weapon") return { label: "Equip (Main)", attr: `data-equip-main="${selInvIdx}"` };
+        if (eff === "trinket") return { label: "Equip (A)", attr: `data-equip-trinket-a="${selInvIdx}"` };
+        if (eff === "food") return { label: "Eat", attr: `data-use-item="${selInvIdx}"` };
+        if (eff === "valuable") return null;
+        if (eff === "material") return null;
+        return { label: "Use", attr: `data-use-item="${selInvIdx}"` };
+      })();
+
+      const secondaryAction = (() => {
+        if (!selItem || selInvIdx < 0) return null;
+        const eff = effectId(selItem);
+        if (eff === "weapon") return { label: "Equip (Off)", attr: `data-equip-off="${selInvIdx}"` };
+        if (eff === "trinket") return { label: "Equip (B)", attr: `data-equip-trinket-b="${selInvIdx}"` };
+        return null;
+      })();
+
+      const allowHotbarAssign = (() => {
+        const k = itemKind(selItem);
+        return k === "weapon" || k === "consumable" || k === "trinket";
+      })();
+
+      const actions = [];
+      if (primaryAction) actions.push(`<button type="button" class="inv-action-btn" ${primaryAction.attr}>${escapeHtml(primaryAction.label)}</button>`);
+      if (secondaryAction) actions.push(`<button type="button" class="inv-action-btn" ${secondaryAction.attr}>${escapeHtml(secondaryAction.label)}</button>`);
+      if (canCook) actions.push(`<button type="button" class="inv-action-btn" data-cook-food="${selInvIdx}">Cook</button>`);
+      if (allowHotbarAssign) actions.push(`<button type="button" class="inv-action-btn" data-open-assign-hotbar="1">Assign to hotbar</button>`);
+      actions.push(`<button type="button" class="inv-action-btn is-danger" data-drop-item="${selInvIdx}">Drop</button>`);
 
       const assignSlots =
-        overlayOpen && menuInvAssignOpen
+        drawerOpen && menuInvAssignOpen && allowHotbarAssign
           ? `<div class="inv-assign">
               <div class="inv-chip-row">${[0, 1, 2, 3]
-                .map((s) => `<button type="button" class="inv-chip" data-assign-hotbar="${s}:${selIdx}">#${s + 1}</button>`)
+                .map((s) => `<button type="button" class="inv-chip" data-assign-hotbar="${s}:${selInvIdx}">#${s + 1}</button>`)
                 .join("")}</div>
             </div>`
           : "";
 
-      const overlayHtml = overlayOpen
-        ? `<div class="inv-overlay${overlaySideClass}">
-            <div class="inv-overlay-top">
-              <div class="inv-overlay-title" style="color:${selItem?.color || "cyan"};${rarityOutlineCss(selItem)}">${escapeHtml(
-                displayName(selItem),
-              )}</div>
-              <button type="button" class="inv-overlay-close" data-inv-overlay-close="1" aria-label="Close">✕</button>
-            </div>
-            <div class="inv-overlay-body">
-              <div class="inv-overlay-meta">${escapeHtml(metaLine(selItem))}</div>
-              <div class="inv-overlay-actions">
-                <button type="button" class="inv-action-btn" data-use-item="${selIdx}">Use</button>
-                <button type="button" class="inv-action-btn" data-open-assign-hotbar="1">Assign to hotbar</button>
-                <button type="button" class="inv-action-btn" data-drop-item="${selIdx}">Drop</button>
-                ${canCook ? `<button type="button" class="inv-action-btn" data-cook-food="${selIdx}">Cook</button>` : ""}
+      const descLines = describeItemLines(selItem);
+      const drawerHtml = drawerOpen
+        ? `<div class="inv-drawer-layer">
+            <button type="button" class="inv-drawer-backdrop" data-inv-drawer-close="1" aria-label="Close item"></button>
+            <div class="inv-drawer" role="dialog" aria-modal="true" aria-label="Item actions">
+              <div class="inv-drawer-top">
+                <div class="inv-drawer-title" style="color:${selItem?.color || "cyan"};${rarityOutlineCss(selItem)}">${escapeHtml(
+                  displayName(selItem),
+                )}${escapeHtml(qtyLabel(selItem))}</div>
+                <button type="button" class="inv-drawer-close" data-inv-drawer-close="1" aria-label="Close">✕</button>
+              </div>
+              <div class="inv-drawer-desc">
+                ${descLines.map((l) => `<div>${escapeHtml(l)}</div>`).join("")}
+              </div>
+              <div class="inv-drawer-actions">
+                ${actions.join("")}
               </div>
               ${assignSlots}
             </div>
           </div>`
         : "";
 
-      content = `${header}<div class="inv-pane inv-pane-inventory">
+      content = `${header}${filterRow}<div class="inv-pane inv-pane-inventory">
         <div class="inv-section-title">Items</div>
-        <div class="inv-grid-wrap ${overlayOpen ? "is-overlay-open" : ""}">
-          ${overlayHtml}
+        <div class="inv-grid-wrap">
+          ${drawerHtml}
           ${gridHtml}
         </div>
       </div>`;
