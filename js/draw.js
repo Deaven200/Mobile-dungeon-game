@@ -1199,6 +1199,23 @@ function draw() {
     return addSpriteCell(g, dim ? 0.5 : 1);
   };
 
+  const spriteReadyForGlyph = (glyph) => {
+    try {
+      return !!window.SpriteAtlas?.isReadyForGlyph?.(String(glyph || ""));
+    } catch {
+      return false;
+    }
+  };
+
+  // Important: the sprite layer sits ABOVE the ASCII (#game). If we add a terrain sprite
+  // under an entity but the entity sprite is missing, the terrain sprite will cover the ASCII
+  // entity glyph. To avoid "invisible" player/door/etc., only add the terrain underlay when
+  // the entity glyph sprite is actually ready.
+  const paintOnTerrain = (glyph, style, mapKey, opts = null) => {
+    if (spriteReadyForGlyph(glyph)) addTerrainUnderlay(mapKey, !!opts?.dim);
+    paint(glyph, style, opts);
+  };
+
   const paint = (ch, style, opts = null) => {
     const glyph = String(ch || " ");
     const ok = addSpriteCell(glyph, opts?.dim ? 0.5 : 1);
@@ -1261,19 +1278,16 @@ function draw() {
       }
 
       if (tx === player.x && ty === player.y) {
-        addTerrainUnderlay(key, false);
         const extra = `${popCss}${getBurning(player)?.turns ? burningOutlineCss : ""}`;
-        paint("@", `color:cyan;${extra}`);
+        paintOnTerrain("@", `color:cyan;${extra}`, key);
       } else if (enemyByPos.has(key)) {
-        addTerrainUnderlay(key, false);
         const e = enemyByPos.get(key);
         const hitFlash = lastTarget && lastTarget.x === e.x && lastTarget.y === e.y && Date.now() - (lastTarget.time || 0) < 220;
         const flashCss = hitFlash ? "text-shadow: 0 0 6px rgba(255,255,255,0.9), 0 0 10px rgba(255,255,255,0.35);" : "";
         const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}${flashCss}`;
-        paint(e.symbol || "E", `color:${e.color || "red"};${extra}`);
+        paintOnTerrain(e.symbol || "E", `color:${e.color || "red"};${extra}`, key);
       } else if (mouse && tx === mouse.x && ty === mouse.y) {
-        addTerrainUnderlay(key, false);
-        paint("m", `color:#eee;${popCss}`);
+        paintOnTerrain("m", `color:#eee;${popCss}`, key);
       } else if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
         // Hidden hallway/room are drawn as walls until revealed.
         const isFalseWall = hiddenArea.falseWalls?.has(key);
@@ -1281,21 +1295,19 @@ function draw() {
         const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
         paint("#", `color:${color};`);
       } else if (lootAtKey(key)) {
-        addTerrainUnderlay(key, false);
         const p = lootAtKey(key);
         const rid = String(p?.rarity || "");
         const rar = (Array.isArray(RARITIES) ? RARITIES.find((r) => r.id === rid) : null) || null;
         const outline = rar?.outline
           ? `text-shadow: -1px 0 ${rar.outline}, 1px 0 ${rar.outline}, 0 -1px ${rar.outline}, 0 1px ${rar.outline}, 0 0 6px ${rar.outline};`
           : "";
-        paint(p.symbol, `color:${p.color || "cyan"};${popCss}${outline}`);
+        paintOnTerrain(p.symbol, `color:${p.color || "cyan"};${popCss}${outline}`, key);
       } else if (propAtKey?.(key)) {
-        addTerrainUnderlay(key, false);
         const pr = propAtKey(key);
         const kind = String(pr?.kind || "");
         const ch = kind === "crate" ? TILE.CRATE : TILE.BARREL;
         const c = kind === "crate" ? "#c49a6c" : "#a86f3a";
-        paint(ch, `color:${c};${popCss}text-shadow: 0 0 4px rgba(0,0,0,0.6);`);
+        paintOnTerrain(ch, `color:${c};${popCss}text-shadow: 0 0 4px rgba(0,0,0,0.6);`, key);
       } else {
         const ch = tileAtKey(key);
         const trap = trapAtKey(key);
@@ -1305,8 +1317,7 @@ function draw() {
             paint(".", `color:${hiddenFlashOn ? "orange" : floorColor};`);
           } else {
             // Traps sit on a floor/grass tile.
-            addTerrainUnderlay(key, false);
-            paint("~", `color:${trap.color || "orange"};`);
+            paintOnTerrain("~", `color:${trap.color || "orange"};`, key);
           }
         } else if (ch === TILE.FLOOR) {
           // floor (optionally show auto-walk path preview)
@@ -1317,41 +1328,32 @@ function draw() {
         else if (ch === TILE.TRAP_VISIBLE) paint("~", "color:orange;"); // fallback
         else if (ch === TILE.WALL) paint("#", "color:lime;"); // wall
         else if (ch === TILE.ENTRANCE) {
-          addTerrainUnderlay(key, false);
-          paint("D", `color:var(--accent);${popCss}`); // dungeon entrance
+          paintOnTerrain("D", `color:var(--accent);${popCss}`, key); // dungeon entrance
         } else if (ch === TILE.UPSTAIRS) {
-          addTerrainUnderlay(key, false);
-          paint("U", `color:#8ff;${popCss}`); // exit upstairs
+          paintOnTerrain("U", `color:#8ff;${popCss}`, key); // exit upstairs
         } else if (ch === TILE.SHRINE) {
-          addTerrainUnderlay(key, false);
-          paint("&", `color:#ff66ff;${popCss}text-shadow: 0 0 6px rgba(255,102,255,0.35);`); // shrine
+          paintOnTerrain("&", `color:#ff66ff;${popCss}text-shadow: 0 0 6px rgba(255,102,255,0.35);`, key); // shrine
         }
         else if (ch === TILE.TRAPDOOR) {
           // Only show trapdoor if no enemy is on it
           if (!enemyByPos.has(key)) {
-            addTerrainUnderlay(key, false);
-            paint("T", `color:#00ff3a;${popCss}`); // trapdoor
+            paintOnTerrain("T", `color:#00ff3a;${popCss}`, key); // trapdoor
           } else {
             // Enemy is on trapdoor, show enemy instead
-            addTerrainUnderlay(key, false);
             const e = enemyByPos.get(key);
             const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
             const isBoss = e.symbol && e.symbol === e.symbol.toUpperCase() && e.symbol !== e.symbol.toLowerCase();
             const bossGlow = isBoss ? "text-shadow: 0 0 4px #ff0000, 0 0 8px #ff0000;" : "";
-            paint(e.symbol || "E", `color:${e.color || "red"};${extra}${bossGlow}`);
+            paintOnTerrain(e.symbol || "E", `color:${e.color || "red"};${extra}${bossGlow}`, key);
           }
         } else if (ch === TILE.CAMPFIRE) {
-          addTerrainUnderlay(key, false);
-          paint("C", `color:orange;${popCss}`); // campfire
+          paintOnTerrain("C", `color:orange;${popCss}`, key); // campfire
         } else if (ch === TILE.SHOP) {
-          addTerrainUnderlay(key, false);
-          paint("$", `color:#ffd700;${popCss}`); // shop
+          paintOnTerrain("$", `color:#ffd700;${popCss}`, key); // shop
         } else if (ch === TILE.BLACKSMITH) {
-          addTerrainUnderlay(key, false);
-          paint("K", `color:#c49a6c;${popCss}text-shadow: 0 0 6px rgba(196,154,108,0.35);`); // blacksmith
+          paintOnTerrain("K", `color:#c49a6c;${popCss}text-shadow: 0 0 6px rgba(196,154,108,0.35);`, key); // blacksmith
         } else if (ch === TILE.BOUNTY) {
-          addTerrainUnderlay(key, false);
-          paint("!", `color:var(--accent);${popCss}text-shadow: 0 0 6px rgba(0,255,255,0.35);`); // bounty board
+          paintOnTerrain("!", `color:var(--accent);${popCss}text-shadow: 0 0 6px rgba(0,255,255,0.35);`, key); // bounty board
         }
         else paint(ch, "color:white;");
       }

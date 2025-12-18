@@ -1,0 +1,54 @@
+PNG ASSET CHECKLIST (delete lines as you finish art)
+
+These are the default PNG filenames the game will try to load from the `sprites/` folder.
+Tip: on Linux, filenames are case-sensitive. Stick to lowercase to keep it simple.
+
+== Terrain ==
+- sprites/stonefloor.png
+- sprites/grass.png
+- sprites/wall.png
+
+== Player ==
+- sprites/player.png
+
+== Courtyard / dungeon POIs ==
+- sprites/entrance.png       (the dungeon door / entrance tile "D")
+- sprites/upstairs.png       (exit upstairs tile "U")
+- sprites/trapdoor.png       (descend tile "T")
+- sprites/campfire.png       ("C")
+- sprites/shop.png           ("$")
+- sprites/blacksmith.png     ("K")
+- sprites/shrine.png         ("&")
+- sprites/bounty.png         ("!")
+
+== Traps ==
+- sprites/trap.png           ("~")
+
+== Props ==
+- sprites/crate.png          ("X")
+- sprites/barrel.png         ("O")
+
+== Enemies ==
+- sprites/rat.png            ("r")
+- sprites/goblin.png         ("g")
+- sprites/bat.png            ("b")
+- sprites/skeleton.png       ("s")
+- sprites/orc.png            ("o")
+
+== Boss enemies (optional; uppercase variants) ==
+- sprites/boss_rat.png       ("R")
+- sprites/boss_goblin.png    ("G")
+- sprites/boss_bat.png       ("B")
+- sprites/boss_skeleton.png  ("S")
+
+== Loot icons ==
+- sprites/potion.png         ("P")
+- sprites/valuable.png       ("*")
+- sprites/sword.png          ("/")
+- sprites/trinket.png        ("t")
+- sprites/material.png       ("m")
+
+== Food ==
+- sprites/meat.png           ("M")
+- sprites/mushroom.png       ("f")
+- sprites/berry.png          ("y")
