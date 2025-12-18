@@ -1214,6 +1214,53 @@ function draw() {
     return ".";
   };
 
+  // When we can't draw a sprite (ASCII fallback), a single cell can only show one glyph.
+  // To make player/items feel like they sit "on" the floor instead of on pure black,
+  // we apply a subtle floor/grass background to the glyph cell itself.
+  //
+  // Important: use background-repeat with a 1ch x 1em tile size so it still looks like
+  // per-cell tiles even if multiple same-styled glyphs get merged into a single <span>.
+  const terrainBgCssForUnderlay = (underlayGlyph) => {
+    const g = String(underlayGlyph || "");
+    if (g === ".") {
+      return [
+        "display:inline-block;",
+        "width:1ch;",
+        "height:1em;",
+        "background-color: rgba(80, 80, 80, 0.28);",
+        'background-image: url("sprites/stonefloor.png");',
+        "background-repeat: repeat;",
+        "background-size: 1ch 1em;",
+        "background-position: center;",
+        "image-rendering: pixelated;",
+        "image-rendering: crisp-edges;",
+      ].join("");
+    }
+    if (g === ",") {
+      return [
+        "display:inline-block;",
+        "width:1ch;",
+        "height:1em;",
+        "background-color: rgba(20, 120, 40, 0.22);",
+        'background-image: url("sprites/grass.png");',
+        "background-repeat: repeat;",
+        "background-size: 1ch 1em;",
+        "background-position: center;",
+        "image-rendering: pixelated;",
+        "image-rendering: crisp-edges;",
+      ].join("");
+    }
+    // Walls (and unknowns) don't get a ground background.
+    return "";
+  };
+
+  const styleWithTerrainBg = (baseStyle, mapKey) => {
+    const under = underlayGlyphForKey(mapKey);
+    const bg = terrainBgCssForUnderlay(under);
+    if (!bg) return baseStyle;
+    return `${baseStyle || ""}${bg}`;
+  };
+
   const addTerrainUnderlay = (k, dim = false) => {
     const g = underlayGlyphForKey(k);
     return addSpriteCell(g, dim ? 0.5 : 1, 1);
@@ -1232,8 +1279,13 @@ function draw() {
   // entity glyph. To avoid "invisible" player/door/etc., only add the terrain underlay when
   // the entity glyph sprite is actually ready.
   const paintOnTerrain = (glyph, style, mapKey, opts = null) => {
-    if (spriteReadyForGlyph(glyph)) addTerrainUnderlay(mapKey, !!opts?.dim);
-    paint(glyph, style, opts);
+    if (spriteReadyForGlyph(glyph)) {
+      addTerrainUnderlay(mapKey, !!opts?.dim);
+      paint(glyph, style, opts);
+      return;
+    }
+    // ASCII fallback: keep the glyph visible, but give it a floor/grass background.
+    paint(glyph, styleWithTerrainBg(style, mapKey), opts);
   };
 
   const paint = (ch, style, opts = null) => {
