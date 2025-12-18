@@ -4,9 +4,9 @@ These are the default PNG filenames the game will try to load from the `sprites/
 Tip: on Linux, filenames are case-sensitive. Stick to lowercase to keep it simple.
 
 == Terrain ==
-- sprites/stonefloor.png
-- sprites/grass.png
-- sprites/wall.png
+- sprites/stonefloor.png done
+- sprites/grass.png done
+- sprites/wall.png done
 
 == Player ==
 - sprites/player.png
