@@ -63,10 +63,12 @@ function buildMousePathBfs(startX, startY, goalX, goalY) {
   return steps;
 }
 
-function buildEnemyPathBfs(startX, startY, goalX, goalY, limit = 22) {
+function buildEnemyPathBfs(startX, startY, goalX, goalY, limit = 22, enemy = null) {
   const startKey = keyOf(startX, startY);
   const goalKey = keyOf(goalX, goalY);
   if (startKey === goalKey) return [];
+
+  const walkFn = (x, y) => canEnemyMove(x, y, enemy);
 
   const prev = new Map();
   prev.set(startKey, null);
@@ -92,7 +94,7 @@ function buildEnemyPathBfs(startX, startY, goalX, goalY, limit = 22) {
       if (Math.abs(nx - startX) > limit || Math.abs(ny - startY) > limit) continue;
       const nk = keyOf(nx, ny);
       if (prev.has(nk)) continue;
-      if (!isStepAllowed(cur.x, cur.y, nx, ny, canEnemyMove)) continue;
+      if (!isStepAllowed(cur.x, cur.y, nx, ny, walkFn)) continue;
       prev.set(nk, keyOf(cur.x, cur.y));
       if (nk === goalKey) {
         qi = q.length;
@@ -215,6 +217,7 @@ function moveEnemies() {
   for (let idx = enemies.length - 1; idx >= 0; idx--) {
     const e = enemies[idx];
     const eName = e?.name || "Enemy";
+    const canMoveHere = (x, y) => canEnemyMove(x, y, e);
     if (e?.isBoss) e.bossCd = Math.max(0, Number(e.bossCd || 0) - 1);
     const dx = player.x - e.x;
     const dy = player.y - e.y;
@@ -413,7 +416,7 @@ function moveEnemies() {
         let bestD = Infinity;
         for (const c of candidates) {
           if (c.x === e.x && c.y === e.y) continue;
-          if (!isStepAllowed(e.x, e.y, c.x, c.y, canEnemyMove)) continue;
+          if (!isStepAllowed(e.x, e.y, c.x, c.y, canMoveHere)) continue;
           const d2 = chebDist(c.x, c.y, player.x, player.y);
           if (d2 < bestD) {
             bestD = d2;
@@ -426,10 +429,10 @@ function moveEnemies() {
           e.y = best.y;
         } else {
           // If greedy movement fails (blocked corridors), fall back to bounded BFS.
-          const path = buildEnemyPathBfs(e.x, e.y, player.x, player.y, Math.max(10, (e.sight || 5) + 6));
+          const path = buildEnemyPathBfs(e.x, e.y, player.x, player.y, Math.max(10, (e.sight || 5) + 6), e);
           if (path && path.length) {
             const step = path[0];
-            if (isStepAllowed(e.x, e.y, step.x, step.y, canEnemyMove)) {
+            if (isStepAllowed(e.x, e.y, step.x, step.y, canMoveHere)) {
               e.x = step.x;
               e.y = step.y;
             }
@@ -452,7 +455,7 @@ function moveEnemies() {
           const ny = e.y + my;
           // Bounds check - ensure tile exists and is walkable
           const tile = map[keyOf(nx, ny)] || "#";
-          if (tile !== "#" && isStepAllowed(e.x, e.y, nx, ny, canEnemyMove)) {
+          if (tile !== "#" && isStepAllowed(e.x, e.y, nx, ny, canMoveHere)) {
             e.x = nx;
             e.y = ny;
             break;

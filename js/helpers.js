@@ -2671,19 +2671,21 @@ function canMove(x, y) {
   return true;
 }
 
-function canEnemyMove(x, y) {
+function canEnemyMove(x, y, enemy = null) {
   const k = keyOf(x, y);
   const ch = tileAtKey(k);
   if (!isWalkableTile(ch)) return false;
   if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k)) return false;
   if (enemies.some((e) => e.x === x && e.y === y)) return false;
 
-  // Enemies avoid visible traps (~), but can still step on hidden traps (they look like floor).
-  if (ch === TILE.TRAP_VISIBLE) return false;
+  const flying = !!enemy?.flying;
+
+  // Non-flying enemies avoid visible traps (~), but can still step on hidden traps (they look like floor).
+  if (!flying && ch === TILE.TRAP_VISIBLE) return false;
   // Enemies avoid shrines so the player can interact.
   if (ch === TILE.SHRINE) return false;
   const trap = trapAtKey(k);
-  if (trap && !trap.hidden) return false;
+  if (!flying && trap && !trap.hidden) return false;
 
   return true;
 }
