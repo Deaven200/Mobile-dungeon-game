@@ -82,6 +82,7 @@ function defaultSpriteSrcForGlyph(glyph) {
 
 window.SpriteAtlas = (() => {
   const stateBySrc = new Map(); // src -> { img, loaded, error }
+  const glyphState = new Map(); // glyph -> { chosenSrc: string, exhausted: bool, candidates: string[], idx: number }
 
   function _ensure(src) {
     if (!src) return null;
@@ -108,6 +109,53 @@ window.SpriteAtlas = (() => {
     return st;
   }
 
+  function _capitalize(s) {
+    const str = String(s || "");
+    if (!str) return "";
+    return str[0].toUpperCase() + str.slice(1);
+  }
+
+  function _candidateSrcsForGlyph(glyph) {
+    const g = String(glyph || "");
+    // Explicit overrides win (and should be exact paths).
+    const map = window.SPRITE_BY_GLYPH || {};
+    if (map[g]) return [String(map[g])];
+
+    const src = defaultSpriteSrcForGlyph(g);
+    if (!src) return [];
+
+    // If the default src isn't inside SPRITE_BASE_PATH, just try it as-is.
+    const base = String(window.SPRITE_BASE_PATH || "sprites").replace(/\/+$/, "");
+    if (!src.startsWith(`${base}/`)) return [src];
+
+    // Convention-based sprites: tolerate common casing differences on Linux.
+    // Example: sprites/grass.png should also accept sprites/Grass.png, sprites/GRASS.png, and PNG extension casing.
+    const rel = src.slice(base.length + 1); // strip "sprites/"
+    const m = rel.match(/^(.+)\.(png)$/i);
+    if (!m) return [src];
+    const name = m[1];
+
+    const nameVariants = Array.from(
+      new Set([name, _capitalize(name), name.toUpperCase()]),
+    );
+    const extVariants = ["png", "PNG"];
+
+    const out = [];
+    for (const nv of nameVariants) {
+      for (const ev of extVariants) out.push(`${base}/${nv}.${ev}`);
+    }
+    return out;
+  }
+
+  function _getGlyphState(glyph) {
+    const g = String(glyph || "");
+    const existing = glyphState.get(g);
+    if (existing) return existing;
+    const st = { chosenSrc: "", exhausted: false, candidates: _candidateSrcsForGlyph(g), idx: 0 };
+    glyphState.set(g, st);
+    return st;
+  }
+
   function preloadAll() {
     try {
       const map = window.SPRITE_BY_GLYPH || {};
@@ -118,27 +166,40 @@ window.SpriteAtlas = (() => {
     }
   }
 
-  function getSrcForGlyph(glyph) {
-    const g = String(glyph || "");
-    const map = window.SPRITE_BY_GLYPH || {};
-    const src = map[g];
-    if (src) return String(src);
-    return defaultSpriteSrcForGlyph(g);
-  }
-
   function isReadyForGlyph(glyph) {
-    const src = getSrcForGlyph(glyph);
-    if (!src) return false;
-    const st = _ensure(src);
-    return !!(st && st.loaded && !st.error);
+    return !!getReadySrcForGlyph(glyph);
   }
 
   function getReadySrcForGlyph(glyph) {
-    const src = getSrcForGlyph(glyph);
-    if (!src) return "";
-    const st = _ensure(src);
-    if (!st || !st.loaded || st.error) return "";
-    return src;
+    const gs = _getGlyphState(glyph);
+    if (gs.exhausted) return "";
+    if (gs.chosenSrc) {
+      const chosen = _ensure(gs.chosenSrc);
+      return chosen && chosen.loaded && !chosen.error ? gs.chosenSrc : "";
+    }
+
+    // Walk candidate list. Only advance on *known* errors.
+    while (gs.idx < gs.candidates.length) {
+      const src = gs.candidates[gs.idx];
+      const st = _ensure(src);
+      if (!st) {
+        gs.idx += 1;
+        continue;
+      }
+      if (st.loaded && !st.error) {
+        gs.chosenSrc = src;
+        return src;
+      }
+      if (st.error) {
+        gs.idx += 1;
+        continue;
+      }
+      // Still loading.
+      return "";
+    }
+
+    gs.exhausted = true;
+    return "";
   }
 
   // Expose a tiny API.
