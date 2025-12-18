@@ -99,7 +99,8 @@ body {
   height: 0;
   background-repeat: no-repeat;
   background-position: center;
-  background-size: contain;
+  /* Fill the whole tile cell. "contain" often looks disconnected (letterboxing). */
+  background-size: 100% 100%;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }

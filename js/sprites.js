@@ -37,6 +37,12 @@ function defaultSpriteSrcForGlyph(glyph) {
   // Player
   if (g === "@") return _spritePath("player.png");
 
+  // Props
+  // NOTE: "O" is also used for Boss Orc in the enemy system (uppercase of "o").
+  // We prioritize the prop tile here so barrels can have a sprite; Boss Orc will fall back to ASCII unless you override it.
+  if (g === "X") return _spritePath("crate.png");
+  if (g === "O") return _spritePath("barrel.png");
+
   // Enemies (bosses use uppercase symbols; if you don't author boss sprites, they'll just fall back to ASCII)
   if (g === "r") return _spritePath("rat.png");
   if (g === "g") return _spritePath("goblin.png");
@@ -47,7 +53,6 @@ function defaultSpriteSrcForGlyph(glyph) {
   if (g === "G") return _spritePath("boss_goblin.png");
   if (g === "B") return _spritePath("boss_bat.png");
   if (g === "S") return _spritePath("boss_skeleton.png");
-  if (g === "O") return _spritePath("boss_orc.png");
 
   // Traps
   if (g === "~") return _spritePath("trap.png");
@@ -71,10 +76,6 @@ function defaultSpriteSrcForGlyph(glyph) {
   if (g === "M") return _spritePath("meat.png");
   if (g === "f") return _spritePath("mushroom.png");
   if (g === "y") return _spritePath("berry.png");
-
-  // Props
-  if (g === "X") return _spritePath("crate.png");
-  if (g === "O") return _spritePath("barrel.png");
 
   // No default sprite for this glyph.
   return "";

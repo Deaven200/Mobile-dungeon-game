@@ -98,8 +98,9 @@ function renderSpriteLayer(spriteCells, viewRadius) {
   if (!cellW || !cellH) return;
 
   // Cells are positioned relative to the top-left of the ASCII block.
-  const baseLeft = gRect.left - mRect.left;
-  const baseTop = gRect.top - mRect.top;
+  // Pixel-snap the base to reduce subpixel seams/jitter.
+  const baseLeft = Math.round(gRect.left - mRect.left);
+  const baseTop = Math.round(gRect.top - mRect.top);
 
   // Only render sprites inside the visible grid.
   const cols = viewRadius * 2 + 1;
@@ -114,9 +115,12 @@ function renderSpriteLayer(spriteCells, viewRadius) {
       const src = String(s?.src || "");
       if (!src) return "";
       const opacity = Math.max(0, Math.min(1, Number(s?.opacity ?? 1)));
-      const left = baseLeft + cx * cellW;
-      const top = baseTop + cy * cellH;
-      return `<div class="sprite-tile" style="left:${left}px;top:${top}px;width:${cellW}px;height:${cellH}px;opacity:${opacity};background-image:url(&quot;${cssUrl(
+      // Keep subpixel positioning (better alignment with the font grid), but snap final values.
+      const left = Math.round(baseLeft + cx * cellW);
+      const top = Math.round(baseTop + cy * cellH);
+      const w = Math.max(1, Math.round(cellW));
+      const h = Math.max(1, Math.round(cellH));
+      return `<div class="sprite-tile" style="left:${left}px;top:${top}px;width:${w}px;height:${h}px;opacity:${opacity};background-image:url(&quot;${cssUrl(
         src,
       )}&quot;);"></div>`;
     })
@@ -1147,13 +1151,58 @@ function draw() {
   let curCx = 0;
   let curCy = 0;
 
+  const addSpriteCell = (glyph, opacity = 1) => {
+    const g = String(glyph || " ");
+    const src = window.SpriteAtlas?.getReadySrcForGlyph?.(g) || "";
+    if (!src) return false;
+    const op = Math.max(0, Math.min(1, Number(opacity ?? 1)));
+    spriteCells.push({ cx: curCx, cy: curCy, src, opacity: op });
+    return true;
+  };
+
+  const underlayGlyphForKey = (k) => {
+    // Hidden hallway/room tiles render as walls until revealed.
+    if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(k)) return "#";
+
+    const t = tileAtKey(k);
+    if (t === TILE.WALL) return "#";
+    if (t === TILE.GRASS) return ",";
+    if (t === TILE.FLOOR) return ".";
+
+    // Anything else (loot glyphs, props, traps, special POIs) sits "on" a floor/grass tile.
+    // Courtyard (floor 0) is primarily grass, so prefer grass under POIs unless on/near a path.
+    if (Number(floor || 0) === 0) {
+      try {
+        const [xs, ys] = String(k).split(",");
+        const x = Number(xs);
+        const y = Number(ys);
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          const nearPath =
+            tileAt(x, y) === TILE.FLOOR ||
+            tileAt(x + 1, y) === TILE.FLOOR ||
+            tileAt(x - 1, y) === TILE.FLOOR ||
+            tileAt(x, y + 1) === TILE.FLOOR ||
+            tileAt(x, y - 1) === TILE.FLOOR;
+          return nearPath ? "." : ",";
+        }
+      } catch {
+        // ignore
+      }
+      return ",";
+    }
+
+    return ".";
+  };
+
+  const addTerrainUnderlay = (k, dim = false) => {
+    const g = underlayGlyphForKey(k);
+    return addSpriteCell(g, dim ? 0.5 : 1);
+  };
+
   const paint = (ch, style, opts = null) => {
     const glyph = String(ch || " ");
-    const src = window.SpriteAtlas?.getReadySrcForGlyph?.(glyph) || "";
-    if (src) {
-      const dim = !!(opts && opts.dim);
-      const opacity = dim ? 0.5 : 1;
-      spriteCells.push({ cx: curCx, cy: curCy, src, opacity });
+    const ok = addSpriteCell(glyph, opts?.dim ? 0.5 : 1);
+    if (ok) {
       // Hide the ASCII glyph when the sprite is present.
       pushCell(" ", null);
       return;
@@ -1212,15 +1261,18 @@ function draw() {
       }
 
       if (tx === player.x && ty === player.y) {
+        addTerrainUnderlay(key, false);
         const extra = `${popCss}${getBurning(player)?.turns ? burningOutlineCss : ""}`;
         paint("@", `color:cyan;${extra}`);
       } else if (enemyByPos.has(key)) {
+        addTerrainUnderlay(key, false);
         const e = enemyByPos.get(key);
         const hitFlash = lastTarget && lastTarget.x === e.x && lastTarget.y === e.y && Date.now() - (lastTarget.time || 0) < 220;
         const flashCss = hitFlash ? "text-shadow: 0 0 6px rgba(255,255,255,0.9), 0 0 10px rgba(255,255,255,0.35);" : "";
         const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}${flashCss}`;
         paint(e.symbol || "E", `color:${e.color || "red"};${extra}`);
       } else if (mouse && tx === mouse.x && ty === mouse.y) {
+        addTerrainUnderlay(key, false);
         paint("m", `color:#eee;${popCss}`);
       } else if (hiddenArea && !hiddenArea.revealed && hiddenArea.tiles?.has(key)) {
         // Hidden hallway/room are drawn as walls until revealed.
@@ -1229,6 +1281,7 @@ function draw() {
         const color = isFalseWall ? (flash ? (mouseWallPulseOn ? "#0a0" : "#070") : "#0a0") : "lime";
         paint("#", `color:${color};`);
       } else if (lootAtKey(key)) {
+        addTerrainUnderlay(key, false);
         const p = lootAtKey(key);
         const rid = String(p?.rarity || "");
         const rar = (Array.isArray(RARITIES) ? RARITIES.find((r) => r.id === rid) : null) || null;
@@ -1237,6 +1290,7 @@ function draw() {
           : "";
         paint(p.symbol, `color:${p.color || "cyan"};${popCss}${outline}`);
       } else if (propAtKey?.(key)) {
+        addTerrainUnderlay(key, false);
         const pr = propAtKey(key);
         const kind = String(pr?.kind || "");
         const ch = kind === "crate" ? TILE.CRATE : TILE.BARREL;
@@ -1250,6 +1304,8 @@ function draw() {
             // Hidden traps look like floor, but flash orange every few seconds.
             paint(".", `color:${hiddenFlashOn ? "orange" : floorColor};`);
           } else {
+            // Traps sit on a floor/grass tile.
+            addTerrainUnderlay(key, false);
             paint("~", `color:${trap.color || "orange"};`);
           }
         } else if (ch === TILE.FLOOR) {
@@ -1260,25 +1316,43 @@ function draw() {
         else if (ch === TILE.GRASS) paint(",", `color:${grassColor};`); // grass
         else if (ch === TILE.TRAP_VISIBLE) paint("~", "color:orange;"); // fallback
         else if (ch === TILE.WALL) paint("#", "color:lime;"); // wall
-        else if (ch === TILE.ENTRANCE) paint("D", `color:var(--accent);${popCss}`); // dungeon entrance
-        else if (ch === TILE.UPSTAIRS) paint("U", `color:#8ff;${popCss}`); // exit upstairs
-        else if (ch === TILE.SHRINE) paint("&", `color:#ff66ff;${popCss}text-shadow: 0 0 6px rgba(255,102,255,0.35);`); // shrine
+        else if (ch === TILE.ENTRANCE) {
+          addTerrainUnderlay(key, false);
+          paint("D", `color:var(--accent);${popCss}`); // dungeon entrance
+        } else if (ch === TILE.UPSTAIRS) {
+          addTerrainUnderlay(key, false);
+          paint("U", `color:#8ff;${popCss}`); // exit upstairs
+        } else if (ch === TILE.SHRINE) {
+          addTerrainUnderlay(key, false);
+          paint("&", `color:#ff66ff;${popCss}text-shadow: 0 0 6px rgba(255,102,255,0.35);`); // shrine
+        }
         else if (ch === TILE.TRAPDOOR) {
           // Only show trapdoor if no enemy is on it
           if (!enemyByPos.has(key)) {
+            addTerrainUnderlay(key, false);
             paint("T", `color:#00ff3a;${popCss}`); // trapdoor
           } else {
             // Enemy is on trapdoor, show enemy instead
+            addTerrainUnderlay(key, false);
             const e = enemyByPos.get(key);
             const extra = `${popCss}${getBurning(e)?.turns ? burningOutlineCss : ""}`;
             const isBoss = e.symbol && e.symbol === e.symbol.toUpperCase() && e.symbol !== e.symbol.toLowerCase();
             const bossGlow = isBoss ? "text-shadow: 0 0 4px #ff0000, 0 0 8px #ff0000;" : "";
             paint(e.symbol || "E", `color:${e.color || "red"};${extra}${bossGlow}`);
           }
-        } else if (ch === TILE.CAMPFIRE) paint("C", `color:orange;${popCss}`); // campfire
-        else if (ch === TILE.SHOP) paint("$", `color:#ffd700;${popCss}`); // shop
-        else if (ch === TILE.BLACKSMITH) paint("K", `color:#c49a6c;${popCss}text-shadow: 0 0 6px rgba(196,154,108,0.35);`); // blacksmith
-        else if (ch === TILE.BOUNTY) paint("!", `color:var(--accent);${popCss}text-shadow: 0 0 6px rgba(0,255,255,0.35);`); // bounty board
+        } else if (ch === TILE.CAMPFIRE) {
+          addTerrainUnderlay(key, false);
+          paint("C", `color:orange;${popCss}`); // campfire
+        } else if (ch === TILE.SHOP) {
+          addTerrainUnderlay(key, false);
+          paint("$", `color:#ffd700;${popCss}`); // shop
+        } else if (ch === TILE.BLACKSMITH) {
+          addTerrainUnderlay(key, false);
+          paint("K", `color:#c49a6c;${popCss}text-shadow: 0 0 6px rgba(196,154,108,0.35);`); // blacksmith
+        } else if (ch === TILE.BOUNTY) {
+          addTerrainUnderlay(key, false);
+          paint("!", `color:var(--accent);${popCss}text-shadow: 0 0 6px rgba(0,255,255,0.35);`); // bounty board
+        }
         else paint(ch, "color:white;");
       }
     }
