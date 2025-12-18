@@ -318,6 +318,9 @@ function bindInputs() {
       // Inventory UI: filter + selection (kept lightweight; draw() re-renders).
       if (btn.dataset.invFilter != null) {
         menuInvFilter = String(btn.dataset.invFilter || "all");
+        // Changing filters should close the item drawer.
+        menuInvActionOpen = false;
+        menuInvAssignOpen = false;
         // If the selected item is not in the new filter, render() will auto-pick.
         playSound?.("menu");
         draw();
@@ -325,17 +328,15 @@ function bindInputs() {
       }
       if (btn.dataset.selectInv != null) {
         const iid = String(btn.dataset.selectInv || "");
-        const same = String(menuSelectedInvIid || "") === iid;
         menuSelectedInvIid = iid;
-        // Toggle overlay if you tap the same item; otherwise open it.
-        menuInvActionOpen = same ? !menuInvActionOpen : true;
-        if (!menuInvActionOpen) menuInvAssignOpen = false;
-        else menuInvAssignOpen = false;
+        // Always open the item drawer when selecting an item.
+        menuInvActionOpen = true;
+        menuInvAssignOpen = false;
         playSound?.("menu");
         draw();
         return;
       }
-      if (btn.dataset.invOverlayClose != null) {
+      if (btn.dataset.invDrawerClose != null || btn.dataset.invOverlayClose != null) {
         menuInvActionOpen = false;
         menuInvAssignOpen = false;
         playSound?.("menu");
@@ -434,10 +435,14 @@ function bindInputs() {
       }
 
       if (btn.dataset.equipMain != null) {
+        menuInvActionOpen = false;
+        menuInvAssignOpen = false;
         equipToHand("main", Number(btn.dataset.equipMain));
         return;
       }
       if (btn.dataset.equipOff != null) {
+        menuInvActionOpen = false;
+        menuInvAssignOpen = false;
         equipToHand("off", Number(btn.dataset.equipOff));
         return;
       }
@@ -473,10 +478,14 @@ function bindInputs() {
       }
 
       if (btn.dataset.equipTrinketA != null) {
+        menuInvActionOpen = false;
+        menuInvAssignOpen = false;
         equipTrinketToSlot?.("a", Number(btn.dataset.equipTrinketA));
         return;
       }
       if (btn.dataset.equipTrinketB != null) {
+        menuInvActionOpen = false;
+        menuInvAssignOpen = false;
         equipTrinketToSlot?.("b", Number(btn.dataset.equipTrinketB));
         return;
       }
